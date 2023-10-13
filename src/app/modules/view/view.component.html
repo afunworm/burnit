@@ -1,0 +1,49 @@
+<ng-keyboard-shortcuts [shortcuts]="shortcuts"></ng-keyboard-shortcuts>
+<div class="flex h-screen" *ngIf="showError">
+    <div class="m-auto text-center">
+        <h3>An error has occurred while retrieving the secret message. Please contact the developer.</h3><p>
+            Ctrl + S or <a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a> to start a new message.
+        </p>
+    </div>
+</div>
+<div *ngIf="allowView && showMessage && !nocopy">
+    <div class="w-full bg-amber-700 text-white text-center px-8 py-2">
+        {{ viewsLeft > 0 ? "Message " + (usePassword ? "decrypted" : "opened") + " successfully" : "This message has been destroyed" }}. To stat a new message, <a href="#" class="underline mt-4" (click)="navigateToCreate();">click here</a> or press Ctrl + S.
+    </div>
+    <textarea
+        autofocus
+        spellcheck="false"
+        class="w-full h-full p-12 grow border-none outline-none bg-transparent resize-none"
+        style="max-width: 100%; max-height: 100%;"
+        
+    >{{ message }}</textarea>
+</div>
+<div *ngIf="allowView && showMessage && nocopy">
+    <div class="w-full bg-amber-700 text-white text-center px-8 py-2">
+        {{ viewsLeft > 0 ? "Message " + (usePassword ? "decrypted" : "opened") + " successfully" : "This message has been destroyed" }}. This message cannot be copied. To stat a new message, <a href="#" class="underline mt-4" (click)="navigateToCreate();">click here</a> or press Ctrl + S.
+    </div>
+    <div
+        autofocus
+        spellcheck="false"
+        class="display-area w-full h-full p-12 grow bg-transparent"
+        style="max-width: 100%; max-height: 100%;"
+        [innerHTML]="message"
+        
+    ></div>
+</div>
+<div class="flex h-screen" *ngIf="allowView && !showMessage">
+    <div class="m-auto text-center">
+        <h3>You are trying to access a secret message. {{ viewsLeft === 1 ? "This message will be destroyed after opening." : "" }}</h3>
+        <p><input type="password" autocomplete="off" autofocus class="bg-transparent text-center border-non border-b-2 border-gray-500 text-gray-500 placeholder-gray-500::placeholder pt-2 my-8 outline-none" placeholder="Password required" [(ngModel)]="password" *ngIf="usePassword"></p>
+        <a href="#" class="underline mt-4" (click)="viewMessage($event);">Click to View (Ctrl + V)</a>
+    </div>
+</div>
+
+<div class="flex h-screen" *ngIf="showUnauthorized">
+    <div class="m-auto text-center">
+        <h3>The secret message you are trying to access does not exist, or has expired.</h3>
+        <p>
+            Ctrl + S or <a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a> to start a new message.
+        </p>
+    </div>
+</div>

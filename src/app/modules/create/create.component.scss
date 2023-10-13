@@ -1,0 +1,25 @@
+body {
+    background: #101419;
+    color: #FFFFFF;
+    overflow: hidden;
+}
+
+code {
+    background: #e5e7eb;
+    padding: 0px 3px;
+}
+
+.toolbar {
+    @apply fixed w-full bg-white px-4;
+    bottom: 0xp;
+    left: 0px;
+    height: 40px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.toolbar a {
+    @apply h-full inline-block px-3 py-1 underline text-black font-bold mx-2;
+    background: #2efffe;
+    cursor: pointer;
+}
