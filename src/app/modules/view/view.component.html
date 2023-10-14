@@ -6,7 +6,7 @@
         </p>
     </div>
 </div>
-<div *ngIf="allowView && showMessage && !nocopy">
+<div class="h-full" *ngIf="allowView && showMessage && !nocopy">
     <div class="w-full bg-amber-700 text-white text-center px-8 py-2">
         {{ viewsLeft > 0 ? "Message " + (usePassword ? "decrypted" : "opened") + " successfully" : "This message has been destroyed" }}. To stat a new message, <a href="#" class="underline mt-4" (click)="navigateToCreate();">click here</a> or press Ctrl + S.
     </div>
@@ -14,19 +14,19 @@
         autofocus
         spellcheck="false"
         class="w-full h-full p-12 grow border-none outline-none bg-transparent resize-none"
-        style="max-width: 100%; max-height: 100%;"
+        style="max-width: 100%;"
         
     >{{ message }}</textarea>
 </div>
-<div *ngIf="allowView && showMessage && nocopy">
+<div class="h-full overflow-y-scroll" *ngIf="allowView && showMessage && nocopy">
     <div class="w-full bg-amber-700 text-white text-center px-8 py-2">
         {{ viewsLeft > 0 ? "Message " + (usePassword ? "decrypted" : "opened") + " successfully" : "This message has been destroyed" }}. This message cannot be copied. To stat a new message, <a href="#" class="underline mt-4" (click)="navigateToCreate();">click here</a> or press Ctrl + S.
     </div>
     <div
         autofocus
         spellcheck="false"
-        class="display-area w-full h-full p-12 grow bg-transparent"
-        style="max-width: 100%; max-height: 100%;"
+        class="display-area w-full h-full px-8 py-4 grow bg-transparent"
+        style="max-width: 100%;"
         [innerHTML]="message"
         
     ></div>

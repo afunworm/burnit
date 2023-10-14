@@ -82,7 +82,7 @@ export class ViewComponent implements AfterViewInit {
 
       return `<span class="nobf">${letter}</span>` + this.generateRandomString();
 
-    }).join("");
+    }).join("").replaceAll("\n", "<br>");
     this.message = message;
     this.showMessage = true;
 
