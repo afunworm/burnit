@@ -1,5 +1,7 @@
+$main-background-color: #2e2e2e;
+
 body {
-    background: #101419;
+    background: $main-background-color;
     color: #FFFFFF;
     overflow: hidden;
 }

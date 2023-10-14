@@ -14,92 +14,76 @@
 	[(ngModel)]="message"
 ></textarea>
 
-<div class="fixed z-10 inset-0 overflow-y-auto" #dialog *ngIf="showHelp">
-	<div class="flex items-end sm:items-center justify-center min-h-full p-4 text-center sm:p-0 -mt-8">
-		<div class="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:w-2/4 sm:w-full" style="max-width: 80%;">
-			<div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-				<p class="text-sm italic text-gray-500">
-					<a style="text-decoration: none; cursor: pointer;" (click)="showHelp = false;">(press ESC or click here to close this dialog)</a>
-				</p>
+<div class="dialog-container" #dialog *ngIf="showHelp">
+	<div class="dialog">
+		<p class="text-sm italic text-gray-600">
+			<a style="text-decoration: none; cursor: pointer;" (click)="showHelp = false;">(press ESC or click here to close this dialog)</a>
+		</p>
 
-				<p class="mt-2 text-sm text-gray-900">
-					Type in any messages, and press Ctrl + S to save.
-				</p>
+		<p class="mt-2 text-sm text-gray-900">
+			Type in any messages, and press Ctrl + S to save.
+		</p>
 
-				<p class="mt-2 text-sm text-gray-900">
-					By default, the message can only be open once, then it will be removed from the server. However, you can also add specific configurations to the message by typing the configuration, follow by <code>---</code> and your message. For example:
-				</p>
-				
-				<div class="rounded p-2 my-3 bg-gray-200 text-sm text-black">
-					password secret sauce<br>
-					expires 1d<br>
-					delete after 1 view<br>
-					---<br>
-					This message needs the password "secret sauce" to open. It will destroy itself after 1 day, or after 1 view.
-				</div>
-
-				<p class="mt-2 text-sm text-gray-900">
-					<strong>Available configurations are:</strong><br>
-				</p>
-			
-				<p class="mt-2 text-sm text-gray-900" [hidden]>
-					&bull; <code>alias</code> or <code>name</code> followed by the custom name you want for your URL. This will allow you to create more memorable URLs such as <code>{{ url }}/name</code>. Note that alias can only contain number and letters with the length in between 3 and 20.
-				</p>
-			
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; <code>password</code>, <code>pwd</code>, or <code>pw</code> followed by the password you want to protect your secret.
-				</p>
-					
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; <code>expire</code>, <code>expires</code>, <code>delete</code>, <code>deletes</code>, <code>remove</code>, <code>removes</code>, <code>destroy</code>, <code>destroys</code> followed by the condition which after being met, the message will be destroyed.
-				</p>
-				
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; Valid condition units are: <code>view</code> (or <code>views</code>, <code>v</code>), <code>time</code> (or <code>times</code>, <code>t</code>), <code>minute</code> (or <code>minute</code>, <code>minutes</code>, <code>min</code>, <code>mins</code>, <code>m</code>), <code>hour</code> (or <code>hours</code>, <code>hr</code>, <code>hrs</code>, <code>h</code>), <code>day</code> (or <code>days</code>, <code>day</code>, <code>d</code>), <code>week</code> (or <code>weeks</code>, <code>wk</code>, <code>wks</code>, <code>w</code>), <code>month</code> (or <code>months</code>, <code>mo</code>, <code>M</code>), <code>year</code> (or <code>years</code>, <code>yr</code>, <code>yrs</code>, <code>y</code>).
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; Each condition must be on its own line.
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; If a message starts with <code>---</code> without any configuration lines above it, <code>---</code> will be considered part of the message itself and the message will be saved with no configurations.
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					<strong>Another example</strong>:
-				</p>
-				
-				<div class="rounded p-2 my-3 bg-gray-200 text-sm text-black">
-					password singed<br>
-					expire 1d<br>
-					expire 5 views<br>
-					---<br>
-					This message needs the password "singed" to open. It will destroy itself after 1 day, or after being viewed 5 times.
-				</div>
-			</div>
+		<p class="mt-2 text-sm text-gray-900">
+			By default, the message can only be opened once, then it will be removed from the server. However, you can also add specific configurations to the message by typing the configuration, follow by <code>---</code> and your message. For example:
+		</p>
+		
+		<div class="code">
+			nocopy<br>
+			password secret sauce<br>
+			expires 1d<br>
+			delete after 1 view<br>
+			---<br>
+			This message needs the password "secret sauce" to open. It will destroy itself after 1 day, or after 1 view.
 		</div>
 
+		<p class="mt-2 text-sm text-gray-900">
+			<strong>Available configurations are:</strong><br>
+		</p>
+	
+		<p class="mt-2 text-sm text-gray-900" [hidden]="true">
+			&bull; <code>alias</code> or <code>name</code> followed by the custom name you want for your URL. This will allow you to create more memorable URLs such as <code>{{ url }}/name</code>. Note that alias can only contain number and letters with the length in between 3 and 20.
+		</p>
+	
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; <code>nocopy</code>, <code>obfuscate</code>, or <code>obfuscated</code> will attempt to make the message uncopiable from the browser.
+		</p>
+	
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; <code>password</code>, <code>pwd</code>, or <code>pw</code> followed by the password you want to protect your secret.
+		</p>
+			
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; <code>expire</code>, <code>expires</code>, <code>delete</code>, <code>deletes</code>, <code>remove</code>, <code>removes</code>, <code>destroy</code>, <code>destroys</code> followed by the condition which after being met, the message will be destroyed.
+		</p>
+		
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; Valid condition units are: <code>view</code> (or <code>views</code>, <code>v</code>), <code>time</code> (or <code>times</code>, <code>t</code>), <code>minute</code> (or <code>minute</code>, <code>minutes</code>, <code>min</code>, <code>mins</code>, <code>m</code>), <code>hour</code> (or <code>hours</code>, <code>hr</code>, <code>hrs</code>, <code>h</code>), <code>day</code> (or <code>days</code>, <code>day</code>, <code>d</code>), <code>week</code> (or <code>weeks</code>, <code>wk</code>, <code>wks</code>, <code>w</code>), <code>month</code> (or <code>months</code>, <code>mo</code>, <code>M</code>), <code>year</code> (or <code>years</code>, <code>yr</code>, <code>yrs</code>, <code>y</code>).
+		</p>
+
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; Each condition must be on its own line.
+		</p>
+
+		<p class="mt-2 text-sm text-gray-900">
+			&bull; If a message starts with <code>---</code> without any configuration lines above it, <code>---</code> will be considered part of the message itself and the message will be saved with no configurations.
+		</p>
 	</div>
+
 </div>
 
-<div class="fixed z-10 inset-0 overflow-y-auto" #dialog *ngIf="showComplete">
-	<div class="flex items-end sm:items-center justify-center min-h-full p-4 text-center sm:p-0 -mt-16">
-		<div class="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:w-1/3 sm:w-full" style="max-width: 50%;">
-			<div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-				<p class="text-sm italic text-gray-500">
-					<a style="text-decoration: none; cursor: pointer;" (click)="showComplete = false;">(press ESC or click here to close this dialog)</a>
-				</p>
+<div class="dialog-container" #dialog *ngIf="showComplete">
+	<div class="dialog">
+			<p class="text-sm italic text-gray-500">
+				<a style="text-decoration: none; cursor: pointer;" (click)="showComplete = false;">(press ESC or click here to close this dialog)</a>
+			</p>
 
-				<strong class="mt-2 text-sm text-black">Your secret message has been created!</strong>
+			<strong class="mt-2 text-sm text-black">Your secret message has been created!</strong>
 
-				<p class="mt-2 text-sm text-gray-900">
-					Use the following link to share your message:
-				</p>
+			<p class="mt-2 text-sm text-gray-900">
+				Use the following link to share your message:
+			</p>
 
-				<code class="p-2 my-4 text-sm text-gray-900 block w-full text-center">{{ url }}/{{ createdURLRef }}</code>
-			</div>
+			<code class="p-2 my-4 text-sm text-gray-900 block w-full text-center">{{ url }}/{{ createdURLRef }}</code>
 		</div>
-
 	</div>
-</div>
