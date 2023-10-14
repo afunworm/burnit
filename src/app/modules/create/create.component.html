@@ -16,6 +16,8 @@
 
 <div class="dialog-container" #dialog *ngIf="showHelp">
 	<div class="dialog">
+		<div class="caption"><div class="title">How To Use Burn It</div></div>
+
 		<p class="text-sm italic text-gray-600">
 			<a style="text-decoration: none; cursor: pointer;" (click)="showHelp = false;">(press ESC or click here to close this dialog)</a>
 		</p>
@@ -74,16 +76,17 @@
 
 <div class="dialog-container" #dialog *ngIf="showComplete">
 	<div class="dialog">
-			<p class="text-sm italic text-gray-500">
-				<a style="text-decoration: none; cursor: pointer;" (click)="showComplete = false;">(press ESC or click here to close this dialog)</a>
-			</p>
+		<div class="caption"><div class="title">Share Your Secret!</div></div>
+		<p class="text-sm italic text-gray-600">
+			<a style="text-decoration: none; cursor: pointer;" (click)="showComplete = false;">(press ESC or click here to close this dialog)</a>
+		</p>
 
-			<strong class="mt-2 text-sm text-black">Your secret message has been created!</strong>
+		<strong class="mt-2 text-sm text-black">Your secret message has been created!</strong>
 
-			<p class="mt-2 text-sm text-gray-900">
-				Use the following link to share your message:
-			</p>
+		<p class="mt-2 text-sm text-gray-900">
+			Use the following link to share your message:
+		</p>
 
-			<code class="p-2 my-4 text-sm text-gray-900 block w-full text-center">{{ url }}/{{ createdURLRef }}</code>
-		</div>
+		<code class="p-2 my-4 text-sm text-gray-900 block w-full text-center">{{ url }}/{{ createdURLRef }}</code>
 	</div>
+</div>
