@@ -8,6 +8,7 @@ import { LayoutModule } from './layout/layout.module';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { initializeApp } from 'firebase/app';
 import { environment } from 'src/environments/environment';
+
 const app = initializeApp(environment.firebase);
 
 @NgModule({
