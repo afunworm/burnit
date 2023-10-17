@@ -224,7 +224,7 @@ export class CreateComponent implements AfterViewInit {
   }
 
   displayHelpDialog(): void {
-    this.showHelp = true;
+    this.showHelp = !this.showHelp;
   }
 
   reset(): void {
