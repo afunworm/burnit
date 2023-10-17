@@ -68,7 +68,7 @@ export class CreateComponent implements AfterViewInit {
       data.content = input;
     } else {
       // There are configs, but let's save the content first
-      data.content = parts.slice(1).join("");
+      data.content = parts.slice(1).join("\n---\n");
     }
 
     // Define keywords
