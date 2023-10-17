@@ -37,7 +37,7 @@ export const appRoutes: Route[] = [
 				loadChildren: () => import('./modules/create/create.module').then((m) => m.CreateModule),
 			},
 			{
-				path: ':id',
+				path: 'v/:id',
 				loadChildren: () => import('./modules/view/view.module').then((m) => m.ViewModule),
 			}
 		],
