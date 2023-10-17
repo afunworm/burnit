@@ -107,8 +107,8 @@ export class ViewComponent implements AfterViewInit {
       // Encryption required
       try {
         const message = await this._messageService.getMessageContent(messageContentRef);
-        await this._messageService.increaseMessageView();
         let decryptedMessage = await this._messageService.decryptMessage(message, this.password);
+        await this._messageService.increaseMessageView();
         this.displayMessage(decryptedMessage);
         return;
       } catch (error) {
