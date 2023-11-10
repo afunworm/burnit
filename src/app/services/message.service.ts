@@ -30,10 +30,10 @@ export class MessageService {
         let content = data.content;
 
         if (data.alias) docId = data.alias;
-        else docId = this.generateFirestoreId();
+        // else docId = this.generateFirestoreId();
 
         // Get MessageContent Ref
-        data.ref = this.generateFirestoreId(32);
+        // data.ref = this.generateFirestoreId(32);
         let messageContentRef = this.encryptMessageContentRef(data.ref);
 
         delete data.alias;
