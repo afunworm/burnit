@@ -23,6 +23,7 @@
     "appwrite": "^13.0.0",
     "crypto-js": "^4.1.1",
     "dayjs": "^1.11.10",
+    "express": "^4.18.2",
     "firebase": "^10.4.0",
     "ng-keyboard-shortcuts": "^13.0.8",
     "rxjs": "~7.8.0",
