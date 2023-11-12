@@ -1,148 +1,151 @@
-import { AfterViewInit, Component, ViewEncapsulation, inject } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
-import { ShortcutInput, AllowIn } from 'ng-keyboard-shortcuts';
-import { Message } from 'src/app/interfaces/message.interface';
-import { MessageService } from 'src/app/services/message.service';
+import {
+	AfterViewInit,
+	Component,
+	ViewEncapsulation,
+	inject,
+} from "@angular/core";
+import { ActivatedRoute, Router } from "@angular/router";
+import { ShortcutInput, AllowIn } from "ng-keyboard-shortcuts";
+import { Message } from "src/app/interfaces/message.interface";
+import { MessageService } from "src/app/services/message.service";
 
 @Component({
-  selector: 'app-view',
-  templateUrl: './view.component.html',
-  styleUrls: ['./view.component.scss'],
-  encapsulation: ViewEncapsulation.None
+	selector: "app-view",
+	templateUrl: "./view.component.html",
+	styleUrls: ["./view.component.scss"],
+	encapsulation: ViewEncapsulation.None,
 })
 export class ViewComponent implements AfterViewInit {
+	private _activatedRoute = inject(ActivatedRoute);
+	private _messageService = inject(MessageService);
+	private _router = inject(Router);
+	shortcuts: ShortcutInput[] = [];
+	allowView: boolean = false;
+	showUnauthorized: boolean = false;
+	showError: boolean = false;
+	showMessage: boolean = false;
+	message: string = "";
+	viewsLeft: number = 0;
+	usePassword: boolean = false;
+	nocopy: boolean = false;
+	password: string = "";
+	messageId: string = "";
 
-  private _activatedRoute = inject(ActivatedRoute);
-  private _messageService = inject(MessageService);
-  private _router = inject(Router);
-  shortcuts: ShortcutInput[] = [];
-  allowView: boolean = false;
-  showUnauthorized: boolean = false;
-  showError: boolean = false;
-  showMessage: boolean = false;
-  message: string = "";
-  viewsLeft: number = 0;
-  usePassword: boolean = false;
-  nocopy: boolean = false;
-  password: string = "";
+	constructor() {
+		this.messageId = this._activatedRoute.snapshot.params.id;
 
-  constructor() {
-    const messageId = this._activatedRoute.snapshot.params.id;
+		this._messageService.getMessageSnapshot(this.messageId).subscribe({
+			next: (doc) => {
+				// Calculating the number of views left
+				this.viewsLeft = doc.maxViews - doc.views;
 
-    this._messageService.getMessageSnapshot(messageId).then(snapshot => {
+				// Does the message require decryption key?
+				this.usePassword = !!doc.usePassword;
 
-      if (!snapshot.exists) {
-        this.showUnauthorized = true;
-        return;
-      }
+				// Does the password require attempt to prevent copy?
+				this.nocopy = !!doc.nocopy;
 
-      const data = snapshot.data() as Message;
+				this.allowView = true;
+			},
+			error: (error) => {
+				console.log(error);
+				this.showUnauthorized = true;
+			},
+		});
+	}
 
-      // Calculating the number of views left
-      this.viewsLeft = data.maxViews - data.views >= 0 ? data.maxViews - data.views : 0;
+	navigateToCreate() {
+		this._router.navigate(["/create"]);
+	}
 
-      // Does the message require decryption key?
-      this.usePassword = !!data.usePassword;
+	generateRandomString(length: number = 2): string {
+		let result = "";
+		const characters =
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()-_=+[{]}|;:,./?";
+		const charactersLength = characters.length;
+		let counter = 0;
+		while (counter < length) {
+			result += characters.charAt(
+				Math.floor(Math.random() * charactersLength)
+			);
+			counter += 1;
+		}
+		return `<span class="obf">${result}</span>`;
+	}
 
-      // Does the password require attempt to prevent copy?
-      this.nocopy = !!data.nocopy;
+	viewMessage(e?: MouseEvent) {
+		if (e) e.preventDefault();
 
-      this.allowView = true;
+		this._messageService
+			.getMessageContent(this.messageId, this.password)
+			.subscribe({
+				next: (message) => {
+					this.displayMessage(message.content);
+				},
+				error: (error) => {
+					if (error.error.type === "invalid_password") {
+						alert("Invalid password.");
+						location.reload();
+					}
+					console.log(error);
+					this.showError = true;
+				},
+			});
+	}
 
-    }).catch(error =>{
-      console.log(error);
-      this.showUnauthorized = true;
-    });
-  }
+	displayMessage(message: string) {
+		if (!this.nocopy) {
+			this.message = message;
+			this.showMessage = true;
+			return;
+		}
 
-  navigateToCreate() {
-    this._router.navigate(['/create']);
-  }
+		message =
+			this.generateRandomString() +
+			message
+				.split("")
+				.map((letter) => {
+					return (
+						`<span class="nobf">${letter}</span>` +
+						this.generateRandomString()
+					);
+				})
+				.join("")
+				.replaceAll("\n", "<br>");
+		this.message = message;
+		this.showMessage = true;
+	}
 
-  generateRandomString(length: number = 2): string {
-    let result = '';
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()-_=+[{]}|;:,./?';
-    const charactersLength = characters.length;
-    let counter = 0;
-    while (counter < length) {
-      result += characters.charAt(Math.floor(Math.random() * charactersLength));
-      counter += 1;
-    }
-    return `<span class="obf">${result}</span>`; 
-}
+	ngAfterViewInit(): void {
+		this.shortcuts.push(
+			{
+				key: "ctrl + s",
+				preventDefault: true,
+				allowIn: [
+					AllowIn.Textarea,
+					AllowIn.Input,
+					AllowIn.ContentEditable,
+					AllowIn.Select,
+				],
+				command: async (e) => {
+					this.navigateToCreate();
+				},
+			},
+			{
+				key: "ctrl + v",
+				preventDefault: true,
+				allowIn: [
+					AllowIn.Textarea,
+					AllowIn.Input,
+					AllowIn.ContentEditable,
+					AllowIn.Select,
+				],
+				command: (e) => {
+					if (!this.allowView) return;
 
-  displayMessage(message: string) {
-    if (!this.nocopy) {
-      this.message = message;
-      this.showMessage = true;
-      return;
-    }
-
-    message = this.generateRandomString() + message.split("").map(letter => {
-
-      return `<span class="nobf">${letter}</span>` + this.generateRandomString();
-
-    }).join("").replaceAll("\n", "<br>");
-    this.message = message;
-    this.showMessage = true;
-
-  }
-
-  async viewMessage(e?: MouseEvent) {
-    if (e) e.preventDefault();
-
-    try {
-      const data = await this._messageService.getMessageData() as Message;
-      const unencryptedRef = data.ref;
-      const messageContentRef = this._messageService.encryptMessageContentRef(unencryptedRef);
-
-      // No encryption needed
-      if (!this.usePassword) {
-        const message = await this._messageService.getMessageContent(messageContentRef);
-        await this._messageService.increaseMessageView();
-        this.displayMessage(message);
-        return;
-      }
-
-      // Encryption required
-      try {
-        const message = await this._messageService.getMessageContent(messageContentRef);
-        let decryptedMessage = await this._messageService.decryptMessage(message, this.password);
-        await this._messageService.increaseMessageView();
-        this.displayMessage(decryptedMessage);
-        return;
-      } catch (error) {
-        alert('Invalid password.');
-        location.reload();
-      }
-      
-    } catch (error) {
-      console.log(error);
-      this.showError = true;
-    }
-  }
-
-  ngAfterViewInit(): void {  
-    this.shortcuts.push(
-      {
-          key: "ctrl + s",
-          preventDefault: true,
-          allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable, AllowIn.Select],
-          command: async (e) => {
-            this.navigateToCreate();
-          }
-      },
-      {
-          key: "ctrl + v",
-          preventDefault: true,
-          allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable, AllowIn.Select],
-          command: (e) => {
-            if (!this.allowView) return;
-
-            this.viewMessage();
-          }
-      },
-    ); 
-  }
-
+					this.viewMessage();
+				},
+			}
+		);
+	}
 }

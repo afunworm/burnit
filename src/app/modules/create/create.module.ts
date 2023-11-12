@@ -1,13 +1,13 @@
-import { NgModule } from '@angular/core';
-import { CreateComponent } from './create.component';
-import { Route, RouterModule } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { KeyboardShortcutsModule } from 'ng-keyboard-shortcuts';
-import { CommonModule } from '@angular/common';
+import { NgModule } from "@angular/core";
+import { CreateComponent } from "./create.component";
+import { Route, RouterModule } from "@angular/router";
+import { FormsModule } from "@angular/forms";
+import { KeyboardShortcutsModule } from "ng-keyboard-shortcuts";
+import { CommonModule } from "@angular/common";
 
 const viewRoutes: Route[] = [
 	{
-		path: '',
+		path: "",
 		component: CreateComponent,
 	},
 ];
@@ -17,7 +17,7 @@ const viewRoutes: Route[] = [
 		RouterModule.forChild(viewRoutes),
 		CommonModule,
 		FormsModule,
-		KeyboardShortcutsModule.forRoot()
+		KeyboardShortcutsModule.forRoot(),
 	],
 	exports: [CreateComponent],
 })

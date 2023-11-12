@@ -1,24 +1,24 @@
 $main-background-color: #2e2e2e;
 
 body {
-    background: $main-background-color;
-    color: #FFFFFF;
-    overflow: hidden;
+	background: $main-background-color;
+	color: #ffffff;
+	overflow: hidden;
 }
 
 .display-area {
-    -webkit-touch-callout: none;
-    -webkit-user-select: none;
-    -khtml-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-    outline: 0;
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+	outline: 0;
 }
 
 .display-area .obf {
-    font-size: 0px;
-    width: 0px;
-    height: 0px;
-    color: transparent;
+	font-size: 0px;
+	width: 0px;
+	height: 0px;
+	color: transparent;
 }
