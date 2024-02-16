@@ -24,7 +24,7 @@ const { JsonDB, Config } = require("node-json-db");
 // Initialize database
 const db = new JsonDB(
 	new Config(
-		"messages" /* Database name */,
+		"database/messages" /* Database name */,
 		true /* Automatically save after push() */,
 		true /* Human readable database */,
 		"/" /* Database separator */
