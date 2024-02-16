@@ -1,11 +1,4 @@
-import {
-	AfterViewInit,
-	Component,
-	ElementRef,
-	ViewChild,
-	ViewEncapsulation,
-	inject,
-} from "@angular/core";
+import { AfterViewInit, Component, ElementRef, ViewChild, ViewEncapsulation, inject } from "@angular/core";
 import { Message } from "../../interfaces/message.interface";
 import { AllowIn, ShortcutInput } from "ng-keyboard-shortcuts";
 import * as dayjs from "dayjs";
@@ -21,8 +14,7 @@ export class CreateComponent implements AfterViewInit {
 	@ViewChild("dialog") dialog: ElementRef;
 	private _messageService = inject(MessageService);
 	message: string = "";
-	defaultMessage: string =
-		"password secret\nexpires 1 view\nexpires 1 week\n---\nYour message goes here...";
+	defaultMessage: string = "password secret\nexpires 1 view\nexpires 1 week\n---\nYour message goes here...";
 	showHelp: boolean = false;
 	showComplete: boolean = false;
 	shortcuts: ShortcutInput[] = [];
@@ -39,8 +31,7 @@ export class CreateComponent implements AfterViewInit {
 		// The safest way is to use if statements
 		input = input.toLowerCase();
 
-		if (["minutes", "minute", "min", "mins", "m"].includes(input))
-			return "minute";
+		if (["minutes", "minute", "min", "mins", "m"].includes(input)) return "minute";
 		if (["hours", "hour", "hr", "h"].includes(input)) return "hour";
 		if (["days", "day", "d"].includes(input)) return "day";
 		if (["weeks", "week", "wk", "wks", "w"].includes(input)) return "week";
@@ -82,6 +73,7 @@ export class CreateComponent implements AfterViewInit {
 		let acceptableExpirationKeywords = [
 			"expires",
 			"expire",
+			"exp",
 			"deletes",
 			"delete",
 			"destroys",
@@ -89,14 +81,7 @@ export class CreateComponent implements AfterViewInit {
 			"removes",
 			"remove",
 		];
-		let acceptableExpirationViewUnits = [
-			"views",
-			"view",
-			"v",
-			"times",
-			"time",
-			"t",
-		];
+		let acceptableExpirationViewUnits = ["views", "view", "v", "times", "time", "t"];
 		let acceptableExpirationTimeUnits = [
 			"minutes",
 			"minute",
@@ -164,9 +149,7 @@ export class CreateComponent implements AfterViewInit {
 				}
 
 				if (params.length < 3 || params.length > 20) {
-					alert(
-						"Alias can only have the length of 3 - 20 characters."
-					);
+					alert("Alias can only have the length of 3 - 20 characters.");
 					return;
 				}
 
@@ -322,11 +305,7 @@ export class CreateComponent implements AfterViewInit {
 			{
 				key: "ctrl + s",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
 				command: async (e) => {
 					this.saveMessage();
 				},
@@ -334,11 +313,7 @@ export class CreateComponent implements AfterViewInit {
 			{
 				key: "ctrl + h",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
 				command: (e) => {
 					this.displayHelpDialog();
 				},
@@ -346,11 +321,7 @@ export class CreateComponent implements AfterViewInit {
 			{
 				key: "ctrl + r",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
 				command: (e) => {
 					this.reset();
 				},
@@ -358,11 +329,7 @@ export class CreateComponent implements AfterViewInit {
 			{
 				key: "ctrl + p",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
 				command: (e) => {
 					this.insertPreset();
 				},
@@ -370,11 +337,7 @@ export class CreateComponent implements AfterViewInit {
 			{
 				key: "esc",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
 				command: (e) => {
 					this.showHelp = false;
 					this.showComplete = false;
