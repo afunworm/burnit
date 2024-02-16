@@ -6,6 +6,10 @@
 /out-tsc
 /bazel-out
 
+# Database folder
+/server/dist
+/server/data/*
+
 # Node
 /node_modules
 npm-debug.log
