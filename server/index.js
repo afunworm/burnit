@@ -9,36 +9,30 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(nocache());
 
-// ApPWrite
-const endpoint = process.env.APPWRITE_ENDPOINT || "";
-const project = process.env.APPWRITE_PROJECT || "";
-const key = process.env.APPWRITE_KEY || "";
-
-if (!endpoint || !project || !key) {
-	console.log(
-		"Environment variables APPWRITE_ENDPOINT, APPWRITE_PROJECT and APPWRITE_KEY are required to run the app."
-	);
-	process.exit();
-}
-
-const sdk = require("node-appwrite");
-const client = new sdk.Client();
-const databases = new sdk.Databases(client);
-client.setEndpoint(endpoint).setProject(project).setKey(key);
-
 // Crypto JS
 const CryptoJS = require("crypto-js");
 
 // DayJS
 const dayjs = require("dayjs");
 
+// For generating random ID
+const { randomUUID } = require("crypto");
+
+// Database
+const { JsonDB, Config } = require("node-json-db");
+
+// Initialize database
+const db = new JsonDB(
+	new Config(
+		"messages" /* Database name */,
+		true /* Automatically save after push() */,
+		true /* Human readable database */,
+		"/" /* Database separator */
+	)
+);
+
 // Misc configuration
-const dbId = "main";
-const dbName = "Main";
-const messageCollectionId = "messages";
-const messageCollectionName = "Messages";
-const encryptionSalt =
-	process.env.ENCRYPTION_SALT || "NlBK7TgXLpQZ7JbnKSy2nxafGEkyhBpHCmzWGJNz";
+const encryptionSalt = process.env.ENCRYPTION_SALT || "NlBK7TgXLpQZ7JbnKSy2nxafGEkyhBpHCmzWGJNz";
 
 const port = 80;
 
@@ -53,94 +47,11 @@ encryptMessage = (message, passphrase) => {
 decryptMessage = (input, passphrase) => {
 	const encryptionKey = passphrase + encryptionSalt;
 
-	return CryptoJS.AES.decrypt(input, encryptionKey).toString(
-		CryptoJS.enc.Utf8
-	);
+	return CryptoJS.AES.decrypt(input, encryptionKey).toString(CryptoJS.enc.Utf8);
 };
 /**
  * Main Route
  */
-app.get("/install", async (req, res) => {
-	try {
-		/**
-		 * Prepare the database
-		 */
-		await databases.create(dbId, dbName);
-
-		/**
-		 * Prepare attribtues for Messages
-		 */
-		await databases.createCollection(
-			dbId,
-			messageCollectionId,
-			messageCollectionName
-		);
-		await databases.createIntegerAttribute(
-			dbId,
-			messageCollectionId,
-			"maxViews",
-			true /* required */,
-			0 /* min */,
-			undefined /* max */
-		);
-		await databases.createBooleanAttribute(
-			dbId,
-			messageCollectionId,
-			"nocopy",
-			true /* required */
-		);
-		await databases.createBooleanAttribute(
-			dbId,
-			messageCollectionId,
-			"usePassword",
-			true /* required */
-		);
-		await databases.createIntegerAttribute(
-			dbId,
-			messageCollectionId,
-			"views",
-			true /* required */,
-			0 /* min */,
-			undefined /* max */
-		);
-		await databases.createStringAttribute(
-			dbId,
-			messageCollectionId,
-			"content",
-			1048576 /* 10MB */,
-			false /* required */,
-			""
-		);
-		await databases.createDatetimeAttribute(
-			dbId,
-			messageCollectionId,
-			"expiresAt",
-			false /* required */
-		);
-
-		res.send({
-			code: 200,
-			message: "Database preparation completed successfully.",
-		});
-	} catch (error) {
-		if (error.type === "database_already_exists") {
-			res.send({
-				error: "Database has already existed. Please remove the existing database before continuing.",
-				type: error.type,
-				code: error.code,
-			});
-		}
-
-		if (error.type === "collection_already_exists") {
-			res.send({
-				error: "Collection has already existed. Please remove the existing collection before continuing.",
-				type: error.type,
-				code: error.code,
-			});
-		}
-	}
-});
-
 app.get("/__api", (req, res) => {
 	res.send({ message: "Success.", code: 200 });
 });
@@ -151,20 +62,16 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 	const preflight = !!req.headers.preflight;
 
 	try {
-		const doc = await databases.getDocument(
-			dbId,
-			messageCollectionId,
-			messageId
-		);
+		// Fetch doc
+		const doc = await db.getData("/" + messageId);
+
+		// To write back to the database to increase view count
+		const originalContent = doc.content;
 
 		// Check if views exceeds maxViews
 		if (doc.views >= doc.maxViews) {
 			// Remove the document from database
-			await databases.deleteDocument(
-				dbId,
-				messageCollectionId,
-				messageId
-			);
+			await db.delete("/" + messageId);
 			throw {
 				error: "This document has reached its view limit.",
 				type: "document_expired_by_view",
@@ -177,11 +84,7 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 		const now = new Date();
 		if (expiresAt < now) {
 			// Remove the document from database
-			await databases.deleteDocument(
-				dbId,
-				messageCollectionId,
-				messageId
-			);
+			await db.delete("/" + messageId);
 			throw {
 				error: "This document has expired.",
 				type: "document_expired_by_time",
@@ -193,13 +96,16 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 		// Pre-flight simply checks if the document exists and hasn't expired
 		// Before increasing the view count
 		if (preflight) {
-			delete doc.content;
-			res.status(200).send(doc);
+			res.status(200).send({
+				...doc,
+				content: "",
+			});
 			return;
 		}
 
 		if (doc.usePassword) {
-			let content = decryptMessage(doc.content, password);
+			let content = decryptMessage(originalContent, password);
+
 			if (content.length === 0) {
 				res.status(400).send({
 					error: "Invalid password.",
@@ -213,9 +119,12 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 		}
 
 		// Increase the view count
-		await databases.updateDocument(dbId, messageCollectionId, messageId, {
-			views: doc.views + 1,
-		});
+		const newData = {
+			...doc,
+			content: originalContent,
+			views: parseInt(doc.views) + 1,
+		};
+		await db.push("/" + messageId, newData);
 
 		res.send(doc);
 	} catch (error) {
@@ -230,6 +139,7 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 		}
 
 		// Error: Malformed UTF-8 data = wrong password
+		console.log(error);
 		if (error.toString().toLowerCase().includes("malformed")) {
 			res.status(400).send({
 				error: "Invalid password.",
@@ -244,7 +154,7 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 });
 
 app.post("/__api/Messages", async (req, res) => {
-	const messageId = req.body.alias || sdk.ID.unique();
+	const messageId = req.body.alias || randomUUID().replaceAll("-", "");
 	const password = req.body.password || "";
 	const maxViews = req.body.maxViews !== undefined ? req.body.maxViews : 1;
 	const nocopy = req.body.nocopy !== undefined ? !!req.body.nocopy : false;
@@ -274,19 +184,38 @@ app.post("/__api/Messages", async (req, res) => {
 	};
 
 	try {
-		const doc = await databases.createDocument(
-			dbId,
-			messageCollectionId,
-			messageId,
-			data
-		);
+		// Helper function to check if the messageId already exists in the database
+		const docExists = (documentId) => {
+			return new Promise(async (resolve) => {
+				try {
+					await db.getData("/" + documentId);
 
-		const createdMessageId =
-			typeof messageId === "unique()" ? messageId : doc.$id;
+					// No error, meaning the message with this messageId already existed
+					resolve(true);
+				} catch (error) {
+					// Error means the message does not exist, can proceed
+					resolve(false);
+				}
+			});
+		};
+
+		// Check for existed documents
+		const exists = await docExists(messageId);
+
+		if (exists) {
+			throw {
+				error: "Document has already existed.",
+				type: "document_already_exists",
+				code: 400,
+			};
+		}
+
+		// Save the new data
+		await db.push("/" + messageId, data);
 
 		res.send({
 			...data,
-			$id: createdMessageId,
+			$id: messageId,
 		});
 	} catch (error) {
 		if (error.type === "document_already_exists") {
