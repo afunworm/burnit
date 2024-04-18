@@ -12,7 +12,7 @@
 <div class="h-full" *ngIf="allowView && showMessage && !nocopy">
 	<div class="w-full bg-amber-700 text-white text-center px-8 py-2">
 		{{
-			viewsLeft <= 1
+			viewsLeft <= 1 && maxViews !== 0
 				? "This message has been destroyed"
 				: "Message " + (usePassword ? "decrypted" : "opened") + " successfully"
 		}}. To stat a new message,
@@ -30,7 +30,7 @@
 <div class="h-full overflow-y-scroll" *ngIf="allowView && showMessage && nocopy">
 	<div class="w-full bg-amber-700 text-white text-center px-8 py-2">
 		{{
-			viewsLeft <= 1
+			viewsLeft <= 1 && maxViews !== 0
 				? "This message has been destroyed"
 				: "Message " + (usePassword ? "decrypted" : "opened") + " successfully"
 		}}. This message cannot be copied. To stat a new message,
