@@ -1,27 +1,74 @@
-# Burnit
+![burnit](src/assets/favicon.png)
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 16.2.4.
+# burnit | Sharing Your Secret Safely & Minimally
 
-## Development server
+burnit is a minimal temporary text sharing service. With burnit, you can configure your messaeg to expires with conditions such as number of views or after a certain time.
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+## **Demo**
 
-## Code scaffolding
+A running version of this app can be found [here](https://burnit.byh.uy/).
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+## **Installation**
 
-## Build
+The easiest way to install burnit is using Docker. This guide assumes you are familiar and already had Docker Engine installed on your server.
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+### Using docker CLI
 
-## Running unit tests
+For quick installation, run:
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+```bash
+docker run -d \
+    --restart unless-stopped \
+    --name burnit \
+    -p 80:80 \
+    afunworm/burnit:latest
+```
 
-## Running end-to-end tests
+To run burnit with data persistency (retain the database even if the container is destroyed), mount the `/home/burnit/data` folder.
 
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
+```bash
+docker run -d \
+    --restart unless-stopped \
+    --name burnit \
+    -v ./data:/home/burnit/data \
+    -p 80:80 \
+    afunworm/burnit:latest
+```
 
-## Further help
+Now burnit should be accessible from `localhost:80`.
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+### Using docker-compose.yml
+
+Create a file `docker-compose.yml`:
+
+```yaml
+services:
+    burnit:
+        container_name: burnit
+        restart: unless-stopped
+        ports:
+            - "80:80"
+        image: "afunworm/burnit:latest"
+```
+
+You can also mount the `/home/burnit/data` folder for persistent data:
+
+```yaml
+services:
+    burnit:
+        container_name: burnit
+        restart: unless-stopped
+        ports:
+            - "80:80"
+        volumes: # Optional for data persistency
+            - "./data:/home/burnit/data"
+        image: "afunworm/burnit:latest"
+```
+
+And run it:
+
+```bash
+docker compose up -d
+```
+
+Now burnit should be accessible from `localhost:80`.
