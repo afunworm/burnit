@@ -73,7 +73,7 @@ docker compose up -d
 
 Now burnit should be accessible from `localhost:80`.
 
-## **LICENSE **
+## **LICENSE**
 
 ** TL;DR **
 [MIT](https://en.wikipedia.org/wiki/MIT_License). You can do whatever you want with this software, for any kind of use (personal or commercial). I claim no warranty of any kind.
