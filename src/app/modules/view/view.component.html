@@ -1,15 +1,10 @@
 <ng-keyboard-shortcuts [shortcuts]="shortcuts"></ng-keyboard-shortcuts>
 <div class="flex h-screen" *ngIf="showError">
 	<div class="m-auto text-center">
-		<h3>
-			An error has occurred while retrieving the secret message. Please
-			contact the developer.
-		</h3>
+		<h3>An error has occurred while retrieving the secret message. Please contact the developer.</h3>
 		<p>
 			Ctrl + S or
-			<a href="#" class="underline mt-4" (click)="navigateToCreate()"
-				>click here</a
-			>
+			<a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a>
 			to start a new message.
 		</p>
 	</div>
@@ -19,13 +14,9 @@
 		{{
 			viewsLeft <= 1
 				? "This message has been destroyed"
-				: "Message " +
-				  (usePassword ? "decrypted" : "opened") +
-				  " successfully"
+				: "Message " + (usePassword ? "decrypted" : "opened") + " successfully"
 		}}. To stat a new message,
-		<a href="#" class="underline mt-4" (click)="navigateToCreate()"
-			>click here</a
-		>
+		<a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a>
 		or press Ctrl + S.
 	</div>
 	<textarea
@@ -36,21 +27,14 @@
 		>{{ message }}</textarea
 	>
 </div>
-<div
-	class="h-full overflow-y-scroll"
-	*ngIf="allowView && showMessage && nocopy"
->
+<div class="h-full overflow-y-scroll" *ngIf="allowView && showMessage && nocopy">
 	<div class="w-full bg-amber-700 text-white text-center px-8 py-2">
 		{{
 			viewsLeft <= 1
 				? "This message has been destroyed"
-				: "Message " +
-				  (usePassword ? "decrypted" : "opened") +
-				  " successfully"
+				: "Message " + (usePassword ? "decrypted" : "opened") + " successfully"
 		}}. This message cannot be copied. To stat a new message,
-		<a href="#" class="underline mt-4" (click)="navigateToCreate()"
-			>click here</a
-		>
+		<a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a>
 		or press Ctrl + S.
 	</div>
 	<div
@@ -65,11 +49,7 @@
 	<div class="m-auto text-center">
 		<h3>
 			You are trying to access a secret message.
-			{{
-				viewsLeft <= 1
-					? "This message will be destroyed after opening."
-					: ""
-			}}
+			{{ viewsLeft <= 1 && maxViews !== 0 ? "This message will be destroyed after opening." : "" }}
 		</h3>
 		<p>
 			<input
@@ -82,23 +62,16 @@
 				*ngIf="usePassword"
 			/>
 		</p>
-		<a href="#" class="underline mt-4" (click)="viewMessage($event)"
-			>Click to View (Ctrl + V)</a
-		>
+		<a href="#" class="underline mt-4" (click)="viewMessage($event)">Click to View (Ctrl + V)</a>
 	</div>
 </div>
 
 <div class="flex h-screen" *ngIf="showUnauthorized">
 	<div class="m-auto text-center">
-		<h3>
-			The secret message you are trying to access does not exist, or has
-			expired.
-		</h3>
+		<h3>The secret message you are trying to access does not exist, or has expired.</h3>
 		<p>
 			Ctrl + S or
-			<a href="#" class="underline mt-4" (click)="navigateToCreate()"
-				>click here</a
-			>
+			<a href="#" class="underline mt-4" (click)="navigateToCreate()">click here</a>
 			to start a new message.
 		</p>
 	</div>

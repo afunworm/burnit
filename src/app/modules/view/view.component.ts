@@ -1,9 +1,4 @@
-import {
-	AfterViewInit,
-	Component,
-	ViewEncapsulation,
-	inject,
-} from "@angular/core";
+import { AfterViewInit, Component, ViewEncapsulation, inject } from "@angular/core";
 import { ActivatedRoute, Router } from "@angular/router";
 import { ShortcutInput, AllowIn } from "ng-keyboard-shortcuts";
 import { Message } from "src/app/interfaces/message.interface";
@@ -25,6 +20,7 @@ export class ViewComponent implements AfterViewInit {
 	showError: boolean = false;
 	showMessage: boolean = false;
 	message: string = "";
+	maxViews: number = 0;
 	viewsLeft: number = 0;
 	usePassword: boolean = false;
 	nocopy: boolean = false;
@@ -36,6 +32,9 @@ export class ViewComponent implements AfterViewInit {
 
 		this._messageService.getMessageSnapshot(this.messageId).subscribe({
 			next: (doc) => {
+				// Assign maxViews to filter out unlimited views from 0 views left
+				this.maxViews = doc.maxViews;
+
 				// Calculating the number of views left
 				this.viewsLeft = doc.maxViews - doc.views;
 
@@ -60,14 +59,11 @@ export class ViewComponent implements AfterViewInit {
 
 	generateRandomString(length: number = 2): string {
 		let result = "";
-		const characters =
-			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()-_=+[{]}|;:,./?";
+		const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~!@#$%^&*()-_=+[{]}|;:,./?";
 		const charactersLength = characters.length;
 		let counter = 0;
 		while (counter < length) {
-			result += characters.charAt(
-				Math.floor(Math.random() * charactersLength)
-			);
+			result += characters.charAt(Math.floor(Math.random() * charactersLength));
 			counter += 1;
 		}
 		return `<span class="obf">${result}</span>`;
@@ -76,21 +72,19 @@ export class ViewComponent implements AfterViewInit {
 	viewMessage(e?: MouseEvent) {
 		if (e) e.preventDefault();
 
-		this._messageService
-			.getMessageContent(this.messageId, this.password)
-			.subscribe({
-				next: (message) => {
-					this.displayMessage(message.content);
-				},
-				error: (error) => {
-					if (error.error.type === "invalid_password") {
-						alert("Invalid password.");
-						location.reload();
-					}
-					console.log(error);
-					this.showError = true;
-				},
-			});
+		this._messageService.getMessageContent(this.messageId, this.password).subscribe({
+			next: (message) => {
+				this.displayMessage(message.content);
+			},
+			error: (error) => {
+				if (error.error.type === "invalid_password") {
+					alert("Invalid password.");
+					location.reload();
+				}
+				console.log(error);
+				this.showError = true;
+			},
+		});
 	}
 
 	displayMessage(message: string) {
@@ -105,10 +99,7 @@ export class ViewComponent implements AfterViewInit {
 			message
 				.split("")
 				.map((letter) => {
-					return (
-						`<span class="nobf">${letter}</span>` +
-						this.generateRandomString()
-					);
+					return `<span class="nobf">${letter}</span>` + this.generateRandomString();
 				})
 				.join("")
 				.replaceAll("\n", "<br>");
@@ -121,12 +112,7 @@ export class ViewComponent implements AfterViewInit {
 			{
 				key: "ctrl + s",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-					AllowIn.Select,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable, AllowIn.Select],
 				command: async (e) => {
 					this.navigateToCreate();
 				},
@@ -134,12 +120,7 @@ export class ViewComponent implements AfterViewInit {
 			{
 				key: "ctrl + v",
 				preventDefault: true,
-				allowIn: [
-					AllowIn.Textarea,
-					AllowIn.Input,
-					AllowIn.ContentEditable,
-					AllowIn.Select,
-				],
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable, AllowIn.Select],
 				command: (e) => {
 					if (!this.allowView) return;
 
