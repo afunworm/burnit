@@ -2,7 +2,7 @@
 
 # burnit | Sharing Your Secret Safely & Minimally
 
-burnit is a minimal temporary text sharing service. With burnit, you can configure your messaeg to expires with conditions such as number of views or after a certain time.
+burnit is a minimal temporary text sharing service. With burnit, you can configure your messages to expire with conditions such as number of views or after a certain time. You can even encrypt your message with a password.
 
 ## **Demo**
 
@@ -72,3 +72,20 @@ docker compose up -d
 ```
 
 Now burnit should be accessible from `localhost:80`.
+
+## **LICENSE **
+
+** TL;DR **
+[MIT](https://en.wikipedia.org/wiki/MIT_License). You can do whatever you want with this software, for any kind of use (personal or commercial). I claim no warranty of any kind.
+
+```bash
+MIT License
+
+Copyright (c) 2024 afunworm
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
