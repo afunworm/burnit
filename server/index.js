@@ -68,15 +68,18 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 		// To write back to the database to increase view count
 		const originalContent = doc.content;
 
-		// Check if views exceeds maxViews
-		if (doc.views >= doc.maxViews) {
-			// Remove the document from database
-			await db.delete("/" + messageId);
-			throw {
-				error: "This document has reached its view limit.",
-				type: "document_expired_by_view",
-				code: 400,
-			};
+		// If maxViews = 0, the document does not have expiration based on views
+		if (doc.maxViews > 0) {
+			// Check if views exceeds maxViews
+			if (doc.views >= doc.maxViews) {
+				// Remove the document from database
+				await db.delete("/" + messageId);
+				throw {
+					error: "This document has reached its view limit.",
+					type: "document_expired_by_view",
+					code: 400,
+				};
+			}
 		}
 
 		// Check if the message has expired
