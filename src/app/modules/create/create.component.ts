@@ -301,6 +301,10 @@ export class CreateComponent implements AfterViewInit {
 		});
 	}
 
+	openGithub() {
+		window.open("https://github.com/afunworm/burnit");
+	}
+
 	ngAfterViewInit(): void {
 		this.shortcuts.push(
 			{
@@ -342,6 +346,14 @@ export class CreateComponent implements AfterViewInit {
 				command: (e) => {
 					this.showHelp = false;
 					this.showComplete = false;
+				},
+			},
+			{
+				key: "ctrl + g",
+				preventDefault: true,
+				allowIn: [AllowIn.Textarea, AllowIn.Input, AllowIn.ContentEditable],
+				command: (e) => {
+					this.openGithub();
 				},
 			}
 		);
