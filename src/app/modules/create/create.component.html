@@ -30,10 +30,9 @@
 				<p class="mt-2 text-sm text-gray-900">Type in any messages, and press Ctrl + S to save.</p>
 
 				<p class="mt-2 text-sm text-gray-900">
-					By default, the message can only be opened once and expires in 1 week, then it will be removed from
-					the server. However, you can also add specific configurations to the message by typing the
-					configuration (each configuration separated by a linebreak), follow by <code>---</code> and your
-					message. For example:
+					<strong>By default, the message can only be opened once and expires in 1 week</strong>, then it will
+					be removed from the server. However, you can also add specific configurations to the message by
+					typing the configuration, follow by <code>---</code> and your message. For example:
 				</p>
 
 				<div class="code">
@@ -46,51 +45,44 @@
 					view.
 				</div>
 
-				<p class="mt-2 text-sm text-gray-900"><strong>Available configurations are:</strong><br /></p>
-
-				<p class="mt-2 text-sm text-gray-900" [hidden]="true">
-					&bull; <code>alias</code> or <code>name</code> followed by the custom name you want for your URL.
-					This will allow you to create more memorable URLs such as <code>{{ url }}/name</code>. Note that
-					alias can only contain number and letters with the length in between 3 and 20.
-				</p>
-
 				<p class="mt-2 text-sm text-gray-900">
-					&bull; <code>nocopy</code>, <code>obfuscate</code>, or <code>obfuscated</code> will attempt to make
-					the message uncopiable from the browser.
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; <code>password</code>, <code>pwd</code>, or <code>pw</code> followed by the password you want
-					to protect your secret.
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; <code>expire</code>, <code>expires</code>, <code>expiration</code>, <code>exp</code>,
-					<code>delete</code>, <code>deletes</code>, <code>remove</code>, <code>removes</code>,
-					<code>destroy</code>, <code>destroys</code> followed by the condition which after being met, the
-					message will be destroyed.
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull; Valid condition units are: <code>view</code> (or <code>views</code>, <code>v</code>),
-					<code>time</code> (or <code>times</code>, <code>t</code>), <code>minute</code> (or
-					<code>minute</code>, <code>minutes</code>, <code>min</code>, <code>mins</code>, <code>m</code>),
-					<code>hour</code> (or <code>hours</code>, <code>hr</code>, <code>hrs</code>, <code>h</code>),
-					<code>day</code> (or <code>days</code>, <code>day</code>, <code>d</code>), <code>week</code> (or
-					<code>weeks</code>, <code>wk</code>, <code>wks</code>, <code>w</code>), <code>month</code> (or
-					<code>months</code>, <code>mo</code>, <code>M</code>), <code>year</code> (or <code>years</code>,
-					<code>yr</code>, <code>yrs</code>, <code>y</code>).
-					<strong>Set the view to 0 to allow unlimited views.</strong>
-				</p>
-
-				<p class="mt-2 text-sm text-gray-900">
-					&bull;
-					<strong
-						>If you configure the expiration by date, or by views, the other configuration will still remain
-						active. The default expiration is 1 week and 1 view.</strong
+					<strong>Available Configuration:</strong> (click
+					<a
+						href="https://github.com/afunworm/burnit?tab=readme-ov-file#available-configurations"
+						target="_BLANK"
+						><strong>here</strong></a
 					>
-					For example, if you configure <code>expires 10 days</code>, the message still have the property of
-					<code>expires 1 view</code> so you have to overwrite that to get the desire effect.
+					for the full list)<br />
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; <code>alias</code> followed by the custom name you want for your URL.
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; <code>nocopy</code> will attempt to make the message uncopiable from the browser.
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; <code>password</code> followed by the password you want to protect your secret.
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; <code>expires</code> followed by the condition which after being met, the message will be
+					destroyed.
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; Valid condition units are: <code>views</code>, <code>minutes</code>, <code>hours</code>,
+					<code>days</code>, <code>weeks</code>, <code>months</code>, <code>years</code>.
+				</p>
+
+				<p class="mt-2 text-sm text-gray-900">&bull; Set the view to 0 to allow unlimited views.</p>
+
+				<p class="mt-2 text-sm text-gray-900">
+					&bull; If you configure the expiration by date, or by views, the other default configuration will
+					still remain active (e.g. if you configure <code>expires 10 days</code>, the message still have the
+					property of <code>expires 1 view</code>). You need to overwrite that to get the desire effect.
 				</p>
 
 				<p class="mt-2 text-sm text-gray-900">
