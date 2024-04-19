@@ -31,7 +31,7 @@ export class CreateComponent implements AfterViewInit {
 		// The safest way is to use if statements
 		input = input.toLowerCase();
 
-		if (["minutes", "minute", "min", "mins", "m"].includes(input)) return "minute";
+		if (["minutes", "minute", "min", "mins"].includes(input)) return "minute";
 		if (["hours", "hour", "hr", "h"].includes(input)) return "hour";
 		if (["days", "day", "d"].includes(input)) return "day";
 		if (["weeks", "week", "wk", "wks", "w"].includes(input)) return "week";
@@ -74,6 +74,7 @@ export class CreateComponent implements AfterViewInit {
 			"expires",
 			"expire",
 			"exp",
+			"expiration",
 			"deletes",
 			"delete",
 			"destroys",
