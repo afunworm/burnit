@@ -14,7 +14,7 @@ export class CreateComponent implements AfterViewInit {
 	@ViewChild("dialog") dialog: ElementRef;
 	private _messageService = inject(MessageService);
 	message: string = "";
-	defaultMessage: string = "password secret\nexpires 1 view\nexpires 1 week\n---\nYour message goes here...";
+	defaultMessage: string = "expires 1 view\nexpires 1 week\n---\nYour message goes here...";
 	showHelp: boolean = false;
 	showComplete: boolean = false;
 	shortcuts: ShortcutInput[] = [];
@@ -259,7 +259,7 @@ export class CreateComponent implements AfterViewInit {
 	}
 
 	insertPreset(): void {
-		this.message = this.defaultMessage; //.replace("***", this._messageService.generateFirestoreId());
+		this.message = this.defaultMessage;
 	}
 
 	saveMessage() {
