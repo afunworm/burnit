@@ -8,6 +8,68 @@ burnit is a minimal temporary text sharing service. With burnit, you can configu
 
 A running version of this app can be found [here](https://burnit.byh.uy/).
 
+## **Usage**
+
+### Basic Usage
+
+Type in any message that you want to share, and press `Ctrl + S` or click the `Save` button and your message is ready to be shared. A link will be given to you. That link can only be used once, and expires after 7 days.
+
+### Advanced Usage
+
+By default, a message can only be seen once, and has an expiration of 7 days from the date it was created. After the expiration date, or after the message has been seen, it will be removed from the server. You can override and customize this behavior by adding specific configurations to the message by typing the configurations (separated by a linebreak for each configuration) before the message, separating the configurations and the message by `---`.
+
+For example, this is the default configuration (when no configuration is given):
+
+```
+expires 7d
+expires 1v
+---
+Your message goes here
+```
+
+You can override the message's configuration however you want (see below for all available configurations). For example:
+
+```
+nocopy
+password secret sauce
+expires 3 days
+delete 11 view
+---
+This message requires the password "secret sauce" to open, and will be destroyed after 3 day or 11 views. The browser will also attempt to disable copy of the message by obfuscate it and apply certain CSS to it.
+```
+
+### Available Configurations
+
+**Note:**
+
+1. If you configure the expiration by date, or by views, the other default configuration will still remain active (e.g. if you configure expires 10 days, the message still have the property of expires 1). You need to overwrite that to get the desire effect.
+2. Each configuration has to be on its own line.
+3. If a message starts with `---` without any configuration lines above it, `---` will be considered part of the message itself and the message will be saved with no custom configurations.
+4. If a message with a requested `alias` already existed, the message creation will fail.
+
+| Configuration | Alias                                                                    | Explanation                                                                                        | Example           |
+| :------------ | :----------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :---------------- |
+| `nocopy`      | `obfuscate`, `obfuscated`                                                | Attempt to make the message uncopiable from the browser.                                           | `nocopy`          |
+| `alias`       | `name`                                                                   | Custom alias for the URL. Alias can only contain numbers, letters and must has a length of 3 - 20. | `alias topSecret` |
+| `password`    | `pwd`, `pw`                                                              | Encrypt the message with the provided password.                                                    | `pw test`         |
+| `expires`     | `expire`, `expiration`, `exp`,`remove`, `removes`, `destroy`, `destroys` | Followed by a condition. Message will be destroyed and removed after the condition is met.         | `expires 5 days`  |
+
+### Available Condition Units
+
+**Note:**
+
+1. Set the number of views to 0 to allow unlimited views. Time configuration is still applied.
+
+| Unit     | Alias                              | Definition      |
+| :------- | :--------------------------------- | :-------------- |
+| `minute` | `minutes`, `min`, `mins`, `m`      | Minutes         |
+| `hour`   | `hours`, `h`, `hr`                 | Hours           |
+| `day`    | `days`, `d`                        | Days            |
+| `week`   | `weeks`, `wk`, `wks`, `w`          | Weeks           |
+| `month`  | `months`, `mo`, `M`                | Months          |
+| `year`   | `years`, `yr`, `yrs`, `y`          | Years           |
+| `view`   | `views`, `v`, `time`, `times`, `t` | Number of Views |
+
 ## **Installation**
 
 The easiest way to install burnit is using Docker. This guide assumes you are familiar and already had Docker Engine installed on your server.
