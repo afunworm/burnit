@@ -157,7 +157,7 @@ app.get("/__api/Messages/:messageId", async (req, res) => {
 });
 
 app.post("/__api/Messages", async (req, res) => {
-	const messageId = req.body.alias || randomUUID().replaceAll("-", "");
+	const messageId = req.body.alias || randomUUID().replaceAll("-", "").substring(0, 8);
 	const password = req.body.password || "";
 	const maxViews = req.body.maxViews !== undefined ? req.body.maxViews : 1;
 	const nocopy = req.body.nocopy !== undefined ? !!req.body.nocopy : false;
