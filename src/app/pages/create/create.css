@@ -26,6 +26,17 @@
 	font-weight: 700;
 }
 
+.config {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0 1.5rem;
+	padding-left: 1.25rem;
+}
+
+.config dt {
+	color: var(--dim);
+}
+
 .link {
 	font-weight: 700;
 	word-break: break-all;

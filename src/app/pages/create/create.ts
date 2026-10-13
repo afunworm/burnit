@@ -27,6 +27,8 @@ export interface Summary {
 	password: boolean;
 	nocopy: boolean;
 	alias: string;
+	/** Absolute expiry in the viewer's locale */
+	expiresAt: string;
 }
 
 const summarize = (options: MessageOptions, now: Date): Summary => ({
@@ -35,6 +37,7 @@ const summarize = (options: MessageOptions, now: Date): Summary => ({
 	password: options.password !== "",
 	nocopy: options.nocopy,
 	alias: options.alias ?? "random",
+	expiresAt: options.expiresAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
 });
 
 @Component({
@@ -56,6 +59,7 @@ export class CreatePage {
 	protected readonly submitting = signal(false);
 	protected readonly errors = signal<string[]>([]);
 	protected readonly shareUrl = signal("");
+	protected readonly createdId = signal("");
 	protected readonly shared = signal<Summary | null>(null);
 	protected readonly copied = signal(false);
 	protected readonly cryptoAvailable = isCryptoAvailable();
@@ -151,6 +155,7 @@ export class CreatePage {
 			});
 
 			this.shareUrl.set(`${this.document.location.origin}/v/${id}#${secret}`);
+			this.createdId.set(id);
 			this.shared.set(summarize(options, now));
 			this.copied.set(false);
 			this.message.set("");

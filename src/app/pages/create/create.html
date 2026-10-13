@@ -135,11 +135,19 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					<p>&gt; encrypt AES-256-GCM ...... <span class="font-bold">ok</span></p>
 					<p>&gt; upload ciphertext ........ <span class="font-bold">ok</span></p>
 					@if (shared(); as s) {
-						<p>
-							&gt; burns after
-							<span class="hl">{{ s.views === "unlimited" ? "unlimited views" : s.views + " view(s)" }}</span>
-							or in <span class="hl">{{ s.expires }}</span>{{ s.password ? ", password protected" : "" }}
-						</p>
+						<p>&gt; config</p>
+						<dl class="config">
+							<dt>views</dt>
+							<dd><span class="hl">{{ s.views }}</span>{{ s.views === "unlimited" ? "" : s.views === "1" ? " (burns after reading)" : " (burns after the last one)" }}</dd>
+							<dt>expires</dt>
+							<dd><span class="hl">{{ s.expires }}</span> ({{ s.expiresAt }})</dd>
+							<dt>password</dt>
+							<dd><span [class.hl]="s.password">{{ s.password ? "on" : "off" }}</span></dd>
+							<dt>nocopy</dt>
+							<dd><span [class.hl]="s.nocopy">{{ s.nocopy ? "on" : "off" }}</span></dd>
+							<dt>id</dt>
+							<dd><span class="hl">{{ createdId() }}</span>{{ s.alias === "random" ? " (random)" : " (alias)" }}</dd>
+						</dl>
 					}
 
 					<div class="code-block link select-all">{{ shareUrl() }}</div>
