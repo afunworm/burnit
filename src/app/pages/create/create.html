@@ -1,0 +1,120 @@
+<div class="flex h-full flex-col">
+	@if (errors().length > 0) {
+		<div class="banner error" role="alert">
+			@for (error of errors(); track $index) {
+				<div>{{ error }}</div>
+			}
+		</div>
+	}
+
+	<textarea
+		#editor
+		autofocus
+		spellcheck="false"
+		class="w-full grow resize-none border-none bg-transparent p-12 outline-none"
+		placeholder="Welcome to Burn It - Share your secrets. Safely. Minimally.&#10;&#10;Start typing..."
+		[value]="message()"
+		(input)="message.set(editor.value)"
+	></textarea>
+
+	<nav class="toolbar">
+		<button type="button" class="button" (click)="toggleHelp()">Help (Ctrl + H)</button>
+		<button type="button" class="button" (click)="reset()">Reset (Ctrl + R)</button>
+		<button type="button" class="button" [disabled]="submitting()" (click)="save()">
+			{{ submitting() ? "Saving..." : "Save (Ctrl + S)" }}
+		</button>
+		<button type="button" class="button" (click)="insertPreset()">Default Preset (Ctrl + P)</button>
+		<button type="button" class="button" (click)="openGithub()">Host your Own (Ctrl + G)</button>
+	</nav>
+</div>
+
+@switch (dialog()) {
+	@case ("help") {
+		<div class="dialog-backdrop">
+			<div class="dialog" role="dialog" aria-labelledby="help-title">
+				<div class="title-bar" id="help-title">How to Use Burn It</div>
+
+				<div class="content text-sm">
+					<p class="italic text-gray-600">
+						<a (click)="closeDialog()">(press ESC or click here to close this dialog)</a>
+					</p>
+
+					<p class="mt-2">Type in any message, and press Ctrl + S to save.</p>
+
+					<p class="mt-2">
+						<strong>By default, the message can only be opened once and expires in 1 week</strong>, then it
+						will be removed from the server. Messages are encrypted in your browser, and the key is only
+						part of the link you share, so the server never sees your message.
+					</p>
+
+					<p class="mt-2">
+						You can also add configurations to the message by typing them, one per line, followed by
+						<code>---</code> and your message. For example:
+					</p>
+
+					<div class="code">nocopy
+password secret sauce
+expires 1d
+delete 1 view
+---
+This message requires the password "secret sauce" to open, and will be destroyed after 1 day or 1 view.</div>
+
+					<p class="mt-2">
+						<strong>Available Configuration:</strong> (click
+						<a href="https://github.com/afunworm/burnit?tab=readme-ov-file#available-configurations" target="_blank" rel="noopener"><strong>here</strong></a>
+						for the full list)
+					</p>
+
+					<p class="mt-2">&bull; <code>alias</code> followed by the custom name you want for your URL.</p>
+					<p class="mt-2">&bull; <code>nocopy</code> will attempt to make the message uncopiable from the browser.</p>
+					<p class="mt-2">&bull; <code>password</code> followed by the password you want to protect your secret.</p>
+					<p class="mt-2">
+						&bull; <code>expires</code> followed by the condition which after being met, the message will be
+						destroyed.
+					</p>
+					<p class="mt-2">
+						&bull; Valid condition units are: <code>views</code>, <code>minutes</code>, <code>hours</code>,
+						<code>days</code>, <code>weeks</code>, <code>months</code>, <code>years</code>.
+					</p>
+					<p class="mt-2">&bull; Set the view to 0 to allow unlimited views. Messages always expire within 1 year.</p>
+					<p class="mt-2">
+						&bull; Configuring only the time or only the views keeps the default for the other (e.g.
+						<code>expires 10 days</code> still has the property of <code>expires 1 view</code>).
+					</p>
+					<p class="mt-2">
+						&bull; Configuration is only recognized when the first line starts with a configuration keyword.
+						Otherwise, the whole text (including <code>---</code>) is saved as the message.
+					</p>
+				</div>
+			</div>
+		</div>
+	}
+	@case ("complete") {
+		<div class="dialog-backdrop">
+			<div class="dialog" role="dialog" aria-labelledby="complete-title">
+				<div class="title-bar" id="complete-title">Share Your Secret!</div>
+
+				<div class="content text-sm">
+					<p class="italic text-gray-600">
+						<a (click)="closeDialog()">(press ESC or click here to close this dialog)</a>
+					</p>
+
+					<strong class="mt-2 block text-black">Your secret message has been created!</strong>
+
+					<p class="mt-2">
+						Use the following link to share your message. The part after <code>#</code> is the decryption
+						key: anyone with the full link can open the message, and it cannot be recovered if lost.
+					</p>
+
+					<code class="my-4 block w-full p-2 text-center break-all select-all">{{ shareUrl() }}</code>
+
+					<div class="text-center">
+						<button type="button" class="button" (click)="copyLink()">
+							{{ copied() ? "Copied!" : "Copy Link" }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}

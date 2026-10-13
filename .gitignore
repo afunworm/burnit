@@ -6,9 +6,10 @@
 /out-tsc
 /bazel-out
 
-# Database folder
-/server/dist/*
-/server/data/*
+# Client build output & database folder
+/server/public
+/server/data
+/server/node_modules
 
 # Node
 /node_modules
@@ -44,6 +45,3 @@ testem.log
 # System files
 .DS_Store
 Thumbs.db
-
-# Environment
-/src/environments/environment.development.ts

@@ -1,0 +1,17 @@
+:host {
+	display: block;
+	height: 100%;
+}
+
+.toolbar {
+	flex: none;
+	height: 40px;
+	padding: 0 1rem;
+	overflow-x: auto;
+	white-space: nowrap;
+}
+
+.toolbar .button {
+	height: 100%;
+	margin: 0 0.5rem;
+}

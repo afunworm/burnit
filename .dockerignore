@@ -31,5 +31,9 @@
 **/values.dev.yaml
 **/build
 **/dist
+**/.angular
+server/public
+server/data
+server/test
 LICENSE
 README.md

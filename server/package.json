@@ -1,17 +1,22 @@
 {
 	"name": "burnit-server",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"description": "Server for Burnit",
-	"main": "index.js",
+	"type": "module",
+	"main": "src/index.js",
 	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"start": "node src/index.js",
+		"dev": "node --watch src/index.js",
+		"test": "node --test"
+	},
+	"engines": {
+		"node": ">=22.13.0"
 	},
 	"author": "Huy",
 	"license": "MIT",
 	"dependencies": {
-		"body-parser": "^1.20.2",
-		"crypto-js": "^4.1.1",
-		"dayjs": "^1.11.10",
-		"nocache": "^4.0.0"
+		"express": "^5.1.0",
+		"express-rate-limit": "^8.1.0",
+		"helmet": "^8.1.0"
 	}
 }

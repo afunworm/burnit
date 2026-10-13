@@ -1,0 +1,27 @@
+:host {
+	display: block;
+	height: 100%;
+}
+
+.centered {
+	display: flex;
+	height: 100%;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 0 1rem;
+	text-align: center;
+}
+
+.display-area {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	-webkit-touch-callout: none;
+	user-select: none;
+	outline: 0;
+}
+
+.display-area .obf {
+	font-size: 0;
+	color: transparent;
+}

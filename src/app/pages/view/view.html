@@ -1,0 +1,106 @@
+@switch (state()) {
+	@case ("loading") {
+		<div class="centered">Loading...</div>
+	}
+
+	@case ("ready") {
+		<form class="centered" (submit)="open($event)">
+			<h3>
+				You are trying to access a secret message.
+				@if (viewsLeft() === 1) {
+					This message will be destroyed after opening.
+				}
+			</h3>
+
+			@if (metadata()?.usePassword) {
+				<input
+					#passwordInput
+					type="password"
+					autocomplete="off"
+					autofocus
+					class="my-8 border-b-2 border-gray-500 bg-transparent pt-2 text-center text-gray-300 outline-none placeholder:text-gray-500"
+					placeholder="Password required"
+					[value]="password()"
+					(input)="password.set(passwordInput.value)"
+				/>
+			}
+
+			@if (passwordError()) {
+				<p class="mb-4 text-red-400" role="alert">{{ passwordError() }}</p>
+			}
+
+			@if (opening()) {
+				<p class="mt-4">Decrypting...</p>
+			} @else {
+				<button type="submit" class="mt-4 cursor-pointer underline">Click to View (Ctrl + V)</button>
+			}
+		</form>
+	}
+
+	@case ("opened") {
+		<div class="flex h-full flex-col">
+			<div class="banner">
+				@if (burned()) {
+					This message has been destroyed.
+				} @else {
+					Message {{ metadata()?.usePassword ? "decrypted" : "opened" }} successfully.
+					@if (viewsLeft(); as left) {
+						{{ left }} view(s) left.
+					}
+				}
+				@if (metadata()?.nocopy) {
+					This message cannot be copied.
+				}
+				To start a new message, <a class="underline" (click)="navigateToCreate()">click here</a> or press Ctrl + S.
+			</div>
+
+			@if (metadata()?.nocopy) {
+				<div class="display-area grow overflow-y-auto px-8 py-4" (copy)="preventCopy($event)" (cut)="preventCopy($event)" (contextmenu)="preventCopy($event)">
+					@for (segment of segments(); track $index) {
+						<span [class.obf]="segment.noise">{{ segment.text }}</span>
+					}
+				</div>
+			} @else {
+				<textarea
+					readonly
+					spellcheck="false"
+					class="w-full grow resize-none border-none bg-transparent p-12 outline-none"
+					[value]="content()"
+				></textarea>
+			}
+		</div>
+	}
+
+	@case ("not-found") {
+		<div class="centered">
+			<h3>{{ errorMessage() || "The secret message you are trying to access does not exist, or has expired." }}</h3>
+			<ng-container [ngTemplateOutlet]="startOver" />
+		</div>
+	}
+
+	@case ("invalid-link") {
+		<div class="centered">
+			<h3>This link is incomplete. Make sure you copied the entire link, including the part after "#".</h3>
+			<ng-container [ngTemplateOutlet]="startOver" />
+		</div>
+	}
+
+	@case ("unsupported") {
+		<div class="centered">
+			<h3>Messages can only be decrypted over a secure connection (HTTPS or localhost).</h3>
+		</div>
+	}
+
+	@default {
+		<div class="centered">
+			<h3>An error has occurred while retrieving the secret message. {{ errorMessage() }}</h3>
+			<ng-container [ngTemplateOutlet]="startOver" />
+		</div>
+	}
+}
+
+<ng-template #startOver>
+	<p class="mt-4">
+		Ctrl + S or <a class="underline" (click)="navigateToCreate()">click here</a> to start a new message.
+	</p>
+</ng-template>
