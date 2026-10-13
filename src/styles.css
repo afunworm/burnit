@@ -207,10 +207,20 @@ kbd {
 }
 
 /* "Bright" text, like a green-screen terminal's high-intensity mode */
-.hl {
+.bright {
 	color: #b8ffcc;
 	font-weight: 700;
 	text-shadow: 0 0 6px rgb(51 255 102 / 0.7);
+}
+
+/* Inverse video, like a search match in less/vim: for one key phrase in running text */
+.hl {
+	padding: 0 0.25ch;
+	background: var(--fg);
+	color: var(--bg);
+	text-shadow: none;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
 }
 
 .err {
