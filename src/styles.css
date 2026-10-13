@@ -67,9 +67,11 @@ button {
 	cursor: pointer;
 }
 
+/* Block caret where you actually type (falls back to a green bar where unsupported) */
 textarea,
 input {
 	caret-color: var(--fg);
+	caret-shape: block;
 }
 
 ::placeholder {
