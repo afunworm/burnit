@@ -2,7 +2,7 @@ volumes:
  data:
 
 networks:
- pangolin:
+ dokploy-network:
   external: true
 
 services:
@@ -12,7 +12,7 @@ services:
   image: burnit
   restart: unless-stopped
   networks:
-   - pangolin
+   - dokploy-network
   volumes:
    - data:/home/burnit/data
   environment:
