@@ -1,0 +1,27 @@
+volumes:
+ data:
+
+networks:
+ pangolin:
+  external: true
+
+services:
+ burnit:
+  build:
+   context: .
+  image: burnit
+  restart: unless-stopped
+  networks:
+   - pangolin
+  volumes:
+   - data:/home/burnit/data
+  environment:
+   # Requests arrive through the reverse proxy; trust one hop so rate limits see real client IPs
+   - TRUST_PROXY=${TRUST_PROXY:-1}
+   # Optional limits (see README); unset = defaults
+   - MAX_TTL_DAYS
+   - MAX_VIEWS
+   - MAX_MESSAGE_KB
+   - MAX_FAILED_ATTEMPTS
+   - RATE_LIMIT_CREATE
+   - RATE_LIMIT_OPEN

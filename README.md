@@ -121,6 +121,14 @@ And run it:
 docker compose up -d
 ```
 
+### Building from source
+
+The repository's `docker-compose.yml` builds the image straight from a checkout, so nothing needs to be pushed to a registry. It joins an existing external `pangolin` network for the reverse proxy instead of publishing ports. Point your proxy at `burnit:80`.
+
+```bash
+git pull && docker compose up -d --build
+```
+
 ### Configuration
 
 | Variable              | Default             | Description                                                                                       |
