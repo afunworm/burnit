@@ -1,4 +1,4 @@
-import { addTime, parseMessage } from "./message-config";
+import { addTime, formatDuration, parseMessage } from "./message-config";
 
 describe("parseMessage", () => {
 	const now = new Date(2026, 0, 31, 12, 0, 0);
@@ -62,5 +62,16 @@ describe("parseMessage", () => {
 		const { options } = parseMessage("nocopy\r\n---\r\nline1\r\nline2", now);
 		expect(options.nocopy).toBe(true);
 		expect(options.content).toBe("line1\nline2");
+	});
+});
+
+describe("formatDuration", () => {
+	it("uses the largest exact unit, then rounds", () => {
+		expect(formatDuration(45 * 60_000)).toBe("45m");
+		expect(formatDuration(3 * 3_600_000)).toBe("3h");
+		expect(formatDuration(7 * 86_400_000)).toBe("7d");
+		expect(formatDuration(365 * 86_400_000)).toBe("1y");
+		expect(formatDuration(31 * 86_400_000)).toBe("31d");
+		expect(formatDuration(90 * 60_000)).toBe("2h");
 	});
 });

@@ -1,17 +1,44 @@
 :host {
 	display: block;
-	height: 100%;
 }
 
-.toolbar {
+.errors {
 	flex: none;
-	height: 40px;
-	padding: 0 1rem;
-	overflow-x: auto;
-	white-space: nowrap;
+	padding: 0.5rem 1rem;
+	border-bottom: 1px solid var(--faint);
 }
 
-.toolbar .button {
-	height: 100%;
-	margin: 0 0.5rem;
+.editor {
+	flex: 1;
+	width: 100%;
+	padding: 1rem;
+	resize: none;
+}
+
+.options {
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0.25rem 1.5rem;
+	padding-left: 1rem;
+}
+
+.options dt {
+	font-weight: 700;
+}
+
+.link {
+	font-weight: 700;
+	word-break: break-all;
+}
+
+@media (max-width: 640px) {
+	.options {
+		grid-template-columns: 1fr;
+	}
+
+	.options dd {
+		margin-bottom: 0.5rem;
+		padding-left: 1rem;
+		color: var(--dim);
+	}
 }

@@ -1,8 +1,13 @@
-<div class="flex h-full flex-col">
+<div class="screen">
+	<header class="titlebar">
+		<span class="path">burnit@secure<span class="dim">:</span>~/new<span class="dim">$</span><span class="cursor"></span></span>
+		<span class="dim hidden sm:inline">e2e encrypted &middot; self-destructing</span>
+	</header>
+
 	@if (errors().length > 0) {
-		<div class="banner error" role="alert">
+		<div class="errors" role="alert">
 			@for (error of errors(); track $index) {
-				<div>{{ error }}</div>
+				<div class="err">ERR: {{ error }}</div>
 			}
 		</div>
 	}
@@ -11,79 +16,108 @@
 		#editor
 		autofocus
 		spellcheck="false"
-		class="w-full grow resize-none border-none bg-transparent p-12 outline-none"
-		placeholder="Welcome to Burn It - Share your secrets. Safely. Minimally.&#10;&#10;Start typing..."
+		autocapitalize="off"
+		autocomplete="off"
+		class="editor"
+		aria-label="Secret message"
+		[placeholder]="placeholder"
 		[value]="message()"
 		(input)="message.set(editor.value)"
 	></textarea>
 
-	<nav class="toolbar">
-		<button type="button" class="button" (click)="toggleHelp()">Help (Ctrl + H)</button>
-		<button type="button" class="button" (click)="reset()">Reset (Ctrl + R)</button>
-		<button type="button" class="button" [disabled]="submitting()" (click)="save()">
-			{{ submitting() ? "Saving..." : "Save (Ctrl + S)" }}
+	@let p = parsed();
+	<div class="statusline" aria-live="polite">
+		<span>views:{{ p.summary.views }}</span>
+		<span>ttl:{{ p.summary.expires }}</span>
+		<span>pw:{{ p.summary.password ? "on" : "off" }}</span>
+		<span>nocopy:{{ p.summary.nocopy ? "on" : "off" }}</span>
+		<span>alias:{{ p.summary.alias }}</span>
+		@if (p.errorCount > 0) {
+			<span class="err">cfg:{{ p.errorCount }} error(s)</span>
+		}
+		<span class="ml-auto">{{ p.length }} chars</span>
+	</div>
+
+	<nav class="keybar" aria-label="Actions">
+		<button type="button" class="key" [disabled]="submitting()" (click)="save()">
+			<kbd>^S</kbd>{{ submitting() ? "Encrypting..." : "Save" }}
 		</button>
-		<button type="button" class="button" (click)="insertPreset()">Default Preset (Ctrl + P)</button>
-		<button type="button" class="button" (click)="openGithub()">Host your Own (Ctrl + G)</button>
+		<button type="button" class="key" (click)="toggleHelp()"><kbd>^H</kbd>Help</button>
+		<button type="button" class="key" (click)="insertPreset()"><kbd>^P</kbd>Preset</button>
+		<button type="button" class="key" (click)="reset()"><kbd>^R</kbd>Clear</button>
+		<button type="button" class="key" (click)="openGithub()"><kbd>^G</kbd>Source</button>
 	</nav>
 </div>
 
 @switch (dialog()) {
 	@case ("help") {
-		<div class="dialog-backdrop">
-			<div class="dialog" role="dialog" aria-labelledby="help-title">
-				<div class="title-bar" id="help-title">How to Use Burn It</div>
+		<div class="dialog-backdrop" (click)="closeDialog()">
+			<div class="dialog" role="dialog" aria-labelledby="help-title" (click)="$event.stopPropagation()">
+				<div class="dialog-title">
+					<span id="help-title">BURNIT(1)</span>
+					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+				</div>
 
-				<div class="content text-sm">
-					<p class="italic text-gray-600">
-						<a (click)="closeDialog()">(press ESC or click here to close this dialog)</a>
+				<div class="dialog-body">
+					<h2>NAME</h2>
+					<p class="pl-4">burnit - share a secret that destroys itself after reading</p>
+
+					<h2>SYNOPSIS</h2>
+					<div class="code-block">[config lines]
+---
+your secret message</div>
+					<p class="pl-4">
+						Without config, a message <span class="warn">burns after 1 view or 1 week</span>. It is encrypted in
+						your browser; the key is only in the link (after <code>#</code>), so the server never sees it.
 					</p>
 
-					<p class="mt-2">Type in any message, and press Ctrl + S to save.</p>
+					<h2>OPTIONS</h2>
+					<dl class="options">
+						<dt>expires &lt;n&gt; &lt;unit&gt;</dt>
+						<dd>Destroy after a number of views or an amount of time. Aliases: <code>exp</code>, <code>delete</code>, <code>destroy</code>, <code>remove</code>.</dd>
+						<dt>password &lt;text&gt;</dt>
+						<dd>Require a password to decrypt. Aliases: <code>pw</code>, <code>pwd</code>.</dd>
+						<dt>alias &lt;name&gt;</dt>
+						<dd>Custom link name, 3 - 20 letters or numbers. Alias: <code>name</code>.</dd>
+						<dt>nocopy</dt>
+						<dd>Make the message harder to copy. Aliases: <code>obfuscate</code>.</dd>
+					</dl>
 
-					<p class="mt-2">
-						<strong>By default, the message can only be opened once and expires in 1 week</strong>, then it
-						will be removed from the server. Messages are encrypted in your browser, and the key is only
-						part of the link you share, so the server never sees your message.
+					<h2>UNITS</h2>
+					<p class="pl-4">
+						view(s) &middot; m(inutes) &middot; h(ours) &middot; d(ays) &middot; w(eeks) &middot; M(onths) &middot; y(ears)<br />
+						e.g. <code>expires 3d</code>, <code>expires 2 views</code>. <code>0 views</code> = unlimited. Messages
+						always expire within 1 year.
 					</p>
 
-					<p class="mt-2">
-						You can also add configurations to the message by typing them, one per line, followed by
-						<code>---</code> and your message. For example:
-					</p>
-
-					<div class="code">nocopy
+					<h2>EXAMPLE</h2>
+					<div class="code-block">nocopy
 password secret sauce
 expires 1d
-delete 1 view
+expires 2 views
 ---
-This message requires the password "secret sauce" to open, and will be destroyed after 1 day or 1 view.</div>
+Destroyed after 1 day or 2 views, whichever comes first.</div>
 
-					<p class="mt-2">
-						<strong>Available Configuration:</strong> (click
-						<a href="https://github.com/afunworm/burnit?tab=readme-ov-file#available-configurations" target="_blank" rel="noopener"><strong>here</strong></a>
-						for the full list)
-					</p>
+					<h2 class="hint-keys">KEYS</h2>
+					<dl class="options hint-keys">
+						<dt><kbd>Ctrl</kbd> + <kbd>S</kbd> / <kbd>Enter</kbd></dt>
+						<dd>Encrypt and save</dd>
+						<dt><kbd>Ctrl</kbd> + <kbd>H</kbd> / <kbd>F1</kbd></dt>
+						<dd>Toggle this help</dd>
+						<dt><kbd>Ctrl</kbd> + <kbd>P</kbd></dt>
+						<dd>Insert the default preset</dd>
+						<dt><kbd>Ctrl</kbd> + <kbd>R</kbd></dt>
+						<dd>Clear the editor</dd>
+						<dt><kbd>Ctrl</kbd> + <kbd>G</kbd></dt>
+						<dd>Source code / host your own</dd>
+						<dt><kbd>Esc</kbd></dt>
+						<dd>Close dialogs</dd>
+					</dl>
 
-					<p class="mt-2">&bull; <code>alias</code> followed by the custom name you want for your URL.</p>
-					<p class="mt-2">&bull; <code>nocopy</code> will attempt to make the message uncopiable from the browser.</p>
-					<p class="mt-2">&bull; <code>password</code> followed by the password you want to protect your secret.</p>
-					<p class="mt-2">
-						&bull; <code>expires</code> followed by the condition which after being met, the message will be
-						destroyed.
-					</p>
-					<p class="mt-2">
-						&bull; Valid condition units are: <code>views</code>, <code>minutes</code>, <code>hours</code>,
-						<code>days</code>, <code>weeks</code>, <code>months</code>, <code>years</code>.
-					</p>
-					<p class="mt-2">&bull; Set the view to 0 to allow unlimited views. Messages always expire within 1 year.</p>
-					<p class="mt-2">
-						&bull; Configuring only the time or only the views keeps the default for the other (e.g.
-						<code>expires 10 days</code> still has the property of <code>expires 1 view</code>).
-					</p>
-					<p class="mt-2">
-						&bull; Configuration is only recognized when the first line starts with a configuration keyword.
-						Otherwise, the whole text (including <code>---</code>) is saved as the message.
+					<h2>NOTES</h2>
+					<p class="pl-4">
+						Config is only read when the first line is a keyword; otherwise everything is the message. Full docs:
+						<a href="https://github.com/afunworm/burnit?tab=readme-ov-file#available-configurations" target="_blank" rel="noopener">github.com/afunworm/burnit</a>
 					</p>
 				</div>
 			</div>
@@ -92,27 +126,36 @@ This message requires the password "secret sauce" to open, and will be destroyed
 	@case ("complete") {
 		<div class="dialog-backdrop">
 			<div class="dialog" role="dialog" aria-labelledby="complete-title">
-				<div class="title-bar" id="complete-title">Share Your Secret!</div>
+				<div class="dialog-title">
+					<span id="complete-title">SECRET CREATED</span>
+					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+				</div>
 
-				<div class="content text-sm">
-					<p class="italic text-gray-600">
-						<a (click)="closeDialog()">(press ESC or click here to close this dialog)</a>
-					</p>
+				<div class="dialog-body">
+					<p>&gt; encrypt AES-256-GCM ...... <span class="font-bold">ok</span></p>
+					<p>&gt; upload ciphertext ........ <span class="font-bold">ok</span></p>
+					@if (shared(); as s) {
+						<p>
+							&gt; burns after
+							<span class="warn">{{ s.views === "unlimited" ? "unlimited views" : s.views + " view(s)" }}</span>
+							or in <span class="warn">{{ s.expires }}</span>{{ s.password ? ", password protected" : "" }}
+						</p>
+					}
 
-					<strong class="mt-2 block text-black">Your secret message has been created!</strong>
+					<div class="code-block link select-all">{{ shareUrl() }}</div>
 
-					<p class="mt-2">
-						Use the following link to share your message. The part after <code>#</code> is the decryption
-						key: anyone with the full link can open the message, and it cannot be recovered if lost.
-					</p>
-
-					<code class="my-4 block w-full p-2 text-center break-all select-all">{{ shareUrl() }}</code>
-
-					<div class="text-center">
-						<button type="button" class="button" (click)="copyLink()">
-							{{ copied() ? "Copied!" : "Copy Link" }}
-						</button>
+					<div class="flex flex-wrap gap-2">
+						<button type="button" class="btn" (click)="copyLink()">{{ copied() ? "COPIED" : "COPY LINK" }}</button>
+						@if (canShare) {
+							<button type="button" class="btn" (click)="shareLink()">SHARE</button>
+						}
+						<button type="button" class="btn" (click)="closeDialog()">NEW MESSAGE</button>
 					</div>
+
+					<p class="dim mt-4">
+						The part after # is the decryption key. Anyone with the full link can read the message; if you
+						lose it, the message is gone for good.
+					</p>
 				</div>
 			</div>
 		</div>

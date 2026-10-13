@@ -170,3 +170,20 @@ export function parseMessage(input: string, now: Date = new Date()): ParseResult
 
 	return { options, errors };
 }
+
+/** Compact duration for display, e.g. "45m", "3h", "7d", "1y" (rounded to the largest whole unit). */
+export function formatDuration(ms: number): string {
+	const minutes = Math.round(ms / 60_000);
+	const units: [string, number][] = [
+		["y", 365 * 24 * 60],
+		["d", 24 * 60],
+		["h", 60],
+	];
+	for (const [label, size] of units) {
+		if (minutes >= size && minutes % size === 0) return `${minutes / size}${label}`;
+	}
+	for (const [label, size] of units) {
+		if (minutes >= size) return `${Math.round(minutes / size)}${label}`;
+	}
+	return `${minutes}m`;
+}

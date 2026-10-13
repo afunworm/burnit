@@ -1,106 +1,105 @@
-@switch (state()) {
-	@case ("loading") {
-		<div class="centered">Loading...</div>
-	}
+<div class="screen">
+	<header class="titlebar">
+		<span class="path">burnit@secure<span class="dim">:</span>~/v/{{ id() }}<span class="dim">$</span></span>
+		<span class="dim hidden sm:inline">e2e encrypted &middot; self-destructing</span>
+	</header>
 
-	@case ("ready") {
-		<form class="centered" (submit)="open($event)">
-			<h3>
-				You are trying to access a secret message.
+	<main class="output">
+		@switch (state()) {
+			@case ("loading") {
+				<p class="cursor">&gt; fetching message {{ id() }} ...</p>
+			}
+
+			@case ("ready") {
+				@let meta = metadata();
+				<p>&gt; message <span class="font-bold">{{ id() }}</span> found</p>
+				<p>&gt; encryption: AES-256-GCM, key {{ meta?.usePassword ? "in link + password" : "in link" }}</p>
 				@if (viewsLeft() === 1) {
-					This message will be destroyed after opening.
+					<p class="warn">&gt; WARNING: this message self-destructs after you open it</p>
+				} @else if (viewsLeft(); as left) {
+					<p>&gt; views left: {{ left }}</p>
 				}
-			</h3>
 
-			@if (metadata()?.usePassword) {
-				<input
-					#passwordInput
-					type="password"
-					autocomplete="off"
-					autofocus
-					class="my-8 border-b-2 border-gray-500 bg-transparent pt-2 text-center text-gray-300 outline-none placeholder:text-gray-500"
-					placeholder="Password required"
-					[value]="password()"
-					(input)="password.set(passwordInput.value)"
-				/>
+				<form class="mt-6" (submit)="open($event)">
+					@if (meta?.usePassword) {
+						<label class="prompt-line">
+							<span class="flex-none">password:</span>
+							<input
+								#passwordInput
+								type="password"
+								autocomplete="off"
+								autocapitalize="off"
+								class="min-w-0 flex-1"
+								[value]="password()"
+								(input)="password.set(passwordInput.value)"
+							/>
+						</label>
+					}
+
+					@if (passwordError()) {
+						<p class="err mt-2" role="alert">ERR: {{ passwordError() }}</p>
+					}
+
+					@if (opening()) {
+						<p class="cursor mt-4">&gt; deriving keys and decrypting ...</p>
+					} @else {
+						<button type="submit" class="btn mt-4">{{ meta?.usePassword ? "DECRYPT" : "OPEN MESSAGE" }}</button>
+						<span class="dim hint-keys ml-2">(Enter / Ctrl+V)</span>
+					}
+				</form>
 			}
 
-			@if (passwordError()) {
-				<p class="mb-4 text-red-400" role="alert">{{ passwordError() }}</p>
-			}
-
-			@if (opening()) {
-				<p class="mt-4">Decrypting...</p>
-			} @else {
-				<button type="submit" class="mt-4 cursor-pointer underline">Click to View (Ctrl + V)</button>
-			}
-		</form>
-	}
-
-	@case ("opened") {
-		<div class="flex h-full flex-col">
-			<div class="banner">
+			@case ("opened") {
 				@if (burned()) {
-					This message has been destroyed.
+					<p class="warn font-bold">*** MESSAGE DESTROYED ***</p>
+					<p class="dim">&gt; this was the last view; it no longer exists on the server</p>
 				} @else {
-					Message {{ metadata()?.usePassword ? "decrypted" : "opened" }} successfully.
-					@if (viewsLeft(); as left) {
-						{{ left }} view(s) left.
-					}
+					<p>
+						&gt; {{ metadata()?.usePassword ? "decrypted" : "opened" }} successfully
+						@if (viewsLeft(); as left) {
+							&middot; {{ left }} view(s) left
+						}
+					</p>
 				}
+				<hr class="divider" />
+
 				@if (metadata()?.nocopy) {
-					This message cannot be copied.
+					<div
+						class="content display-area"
+						(copy)="preventCopy($event)"
+						(cut)="preventCopy($event)"
+						(contextmenu)="preventCopy($event)"
+					>@for (segment of segments(); track $index) {<span [class.obf]="segment.noise">{{ segment.text }}</span>}</div>
+				} @else {
+					<pre class="content">{{ content() }}</pre>
 				}
-				To start a new message, <a class="underline" (click)="navigateToCreate()">click here</a> or press Ctrl + S.
-			</div>
-
-			@if (metadata()?.nocopy) {
-				<div class="display-area grow overflow-y-auto px-8 py-4" (copy)="preventCopy($event)" (cut)="preventCopy($event)" (contextmenu)="preventCopy($event)">
-					@for (segment of segments(); track $index) {
-						<span [class.obf]="segment.noise">{{ segment.text }}</span>
-					}
-				</div>
-			} @else {
-				<textarea
-					readonly
-					spellcheck="false"
-					class="w-full grow resize-none border-none bg-transparent p-12 outline-none"
-					[value]="content()"
-				></textarea>
 			}
-		</div>
-	}
 
-	@case ("not-found") {
-		<div class="centered">
-			<h3>{{ errorMessage() || "The secret message you are trying to access does not exist, or has expired." }}</h3>
-			<ng-container [ngTemplateOutlet]="startOver" />
-		</div>
-	}
+			@case ("not-found") {
+				<p class="err">ERR 404: {{ errorMessage() || "message not found. It expired, was already read, or never existed." }}</p>
+			}
 
-	@case ("invalid-link") {
-		<div class="centered">
-			<h3>This link is incomplete. Make sure you copied the entire link, including the part after "#".</h3>
-			<ng-container [ngTemplateOutlet]="startOver" />
-		</div>
-	}
+			@case ("invalid-link") {
+				<p class="err">ERR: incomplete link. Copy the entire link, including the key after "#".</p>
+			}
 
-	@case ("unsupported") {
-		<div class="centered">
-			<h3>Messages can only be decrypted over a secure connection (HTTPS or localhost).</h3>
-		</div>
-	}
+			@case ("unsupported") {
+				<p class="err">ERR: decryption needs a secure connection (HTTPS or localhost).</p>
+			}
 
-	@default {
-		<div class="centered">
-			<h3>An error has occurred while retrieving the secret message. {{ errorMessage() }}</h3>
-			<ng-container [ngTemplateOutlet]="startOver" />
-		</div>
-	}
-}
+			@default {
+				<p class="err">ERR: could not retrieve the message. {{ errorMessage() }}</p>
+			}
+		}
+	</main>
 
-<ng-template #startOver>
-	<p class="mt-4">
-		Ctrl + S or <a class="underline" (click)="navigateToCreate()">click here</a> to start a new message.
-	</p>
-</ng-template>
+	<nav class="keybar" aria-label="Actions">
+		<button type="button" class="key" (click)="navigateToCreate()"><kbd>^S</kbd>New message</button>
+		@if (state() === "ready") {
+			<button type="button" class="key" [disabled]="opening()" (click)="open()"><kbd>^V</kbd>Open</button>
+		}
+		@if (state() === "opened" && !metadata()?.nocopy) {
+			<button type="button" class="key" (click)="copyContent()">{{ copied() ? "Copied" : "Copy text" }}</button>
+		}
+	</nav>
+</div>

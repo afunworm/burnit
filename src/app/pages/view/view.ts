@@ -1,5 +1,5 @@
-import { Component, OnInit, computed, inject, input, signal } from "@angular/core";
-import { DOCUMENT, NgTemplateOutlet } from "@angular/common";
+import { Component, ElementRef, OnInit, computed, effect, inject, input, signal, viewChild } from "@angular/core";
+import { DOCUMENT } from "@angular/common";
 import { Router } from "@angular/router";
 import { MessageMetadata, MessageService, apiError } from "../../services/message.service";
 import { decrypt, deriveKeys, isCryptoAvailable } from "../../lib/crypto";
@@ -20,7 +20,6 @@ const noise = (length = 2): Segment => {
 
 @Component({
 	selector: "app-view",
-	imports: [NgTemplateOutlet],
 	templateUrl: "./view.html",
 	styleUrl: "./view.css",
 	host: {
@@ -43,6 +42,7 @@ export class ViewPage implements OnInit {
 	protected readonly errorMessage = signal("");
 	protected readonly content = signal("");
 	protected readonly burned = signal(false);
+	protected readonly copied = signal(false);
 
 	protected readonly viewsLeft = computed(() => {
 		const metadata = this.metadata();
@@ -55,7 +55,13 @@ export class ViewPage implements OnInit {
 		return [noise(), ...[...this.content()].flatMap((char) => [{ text: char, noise: false }, noise()])];
 	});
 
+	private readonly passwordInput = viewChild<ElementRef<HTMLInputElement>>("passwordInput");
 	private secret = "";
+
+	constructor() {
+		// autofocus doesn't apply to elements inserted after page load
+		effect(() => this.passwordInput()?.nativeElement.focus());
+	}
 
 	async ngOnInit(): Promise<void> {
 		this.secret = this.document.location.hash.slice(1);
@@ -120,6 +126,15 @@ export class ViewPage implements OnInit {
 			this.fail(error);
 		} finally {
 			this.opening.set(false);
+		}
+	}
+
+	protected async copyContent(): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(this.content());
+			this.copied.set(true);
+		} catch {
+			// Clipboard access can be denied; the text is still selectable
 		}
 	}
 
