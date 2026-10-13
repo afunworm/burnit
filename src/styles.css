@@ -206,6 +206,13 @@ kbd {
 	color: var(--dim);
 }
 
+/* "Bright" text, like a green-screen terminal's high-intensity mode */
+.hl {
+	color: #b8ffcc;
+	font-weight: 700;
+	text-shadow: 0 0 6px rgb(51 255 102 / 0.7);
+}
+
 .err {
 	color: var(--err);
 	text-shadow: 0 0 5px rgb(255 77 77 / 0.5);

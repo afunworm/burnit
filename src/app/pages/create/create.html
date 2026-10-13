@@ -67,7 +67,7 @@
 ---
 your secret message</div>
 					<p class="pl-4">
-						Without config, a message <span class="warn">burns after 1 view or 1 week</span>. It is encrypted in
+						Without config, a message <span class="hl">burns after 1 view or 1 week</span>. It is encrypted in
 						your browser; the key is only in the link (after <code>#</code>), so the server never sees it.
 					</p>
 
@@ -137,8 +137,8 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					@if (shared(); as s) {
 						<p>
 							&gt; burns after
-							<span class="warn">{{ s.views === "unlimited" ? "unlimited views" : s.views + " view(s)" }}</span>
-							or in <span class="warn">{{ s.expires }}</span>{{ s.password ? ", password protected" : "" }}
+							<span class="hl">{{ s.views === "unlimited" ? "unlimited views" : s.views + " view(s)" }}</span>
+							or in <span class="hl">{{ s.expires }}</span>{{ s.password ? ", password protected" : "" }}
 						</p>
 					}
 
