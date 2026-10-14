@@ -1,4 +1,4 @@
-import { Component, input, signal } from "@angular/core";
+import { Component, input, linkedSignal, signal } from "@angular/core";
 import { QrCode } from "./qr-code";
 
 /** A link with copy and QR code buttons. Extra buttons can be projected next to them. */
@@ -12,12 +12,14 @@ import { QrCode } from "./qr-code";
 		}
 		<div class="flex flex-wrap gap-2">
 			<button type="button" class="btn" (click)="copy()">{{ copied() ? "COPIED" : "COPY" }}</button>
-			<button type="button" class="btn" [attr.aria-expanded]="showQr()" (click)="showQr.set(!showQr())">
-				{{ showQr() ? "HIDE QR" : "QR CODE" }}
-			</button>
+			@if (qr() !== "none") {
+				<button type="button" class="btn" [attr.aria-expanded]="showQr()" (click)="showQr.set(!showQr())">
+					{{ showQr() ? "HIDE QR" : "QR CODE" }}
+				</button>
+			}
 			<ng-content />
 		</div>
-		@if (showQr()) {
+		@if (showQr() && qr() !== "none") {
 			<app-qr-code [value]="url()" />
 		}
 	`,
@@ -35,9 +37,11 @@ import { QrCode } from "./qr-code";
 export class LinkCard {
 	readonly url = input.required<string>();
 	readonly note = input("");
+	/** "open" shows the QR code from the start; "none" leaves it out (when it's shown elsewhere) */
+	readonly qr = input<"toggle" | "open" | "none">("toggle");
 
 	protected readonly copied = signal(false);
-	protected readonly showQr = signal(false);
+	protected readonly showQr = linkedSignal(() => this.qr() === "open");
 
 	protected async copy(): Promise<void> {
 		try {

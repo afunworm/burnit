@@ -27,6 +27,7 @@ import {
 } from "../../lib/crypto";
 import { OwnerRecord, previewOf } from "../../lib/vault";
 import { LinkCard } from "../../components/link-card";
+import { QrCode } from "../../components/qr-code";
 
 type Dialog = "none" | "help" | "complete" | "options";
 type OptionField = "views" | "time" | "password" | "nocopy" | "alias";
@@ -81,7 +82,7 @@ const summarize = (options: MessageOptions, now: Date): Summary => ({
 	expires: formatDuration(options.expiresAt.getTime() - now.getTime()),
 	password: options.password !== "",
 	nocopy: options.nocopy,
-	alias: options.alias ?? "none",
+	alias: options.alias ?? "random",
 	expiresAt: options.expiresAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
 });
 
@@ -89,7 +90,7 @@ const secondsUntil = (date: Date, now: Date) => Math.round((date.getTime() - now
 
 @Component({
 	selector: "app-create",
-	imports: [RouterLink, LinkCard],
+	imports: [RouterLink, LinkCard, QrCode],
 	templateUrl: "./create.html",
 	styleUrl: "./create.css",
 	host: {
@@ -358,7 +359,8 @@ export class CreatePage implements OnInit {
 			maxViews: options.maxViews,
 			expiresIn: secondsUntil(options.expiresAt, now),
 			ownerBlob,
-			link: options.alias ? { secret, code: options.alias } : undefined,
+			// Every new message gets a short link: named by the alias, or random
+			link: { secret, code: options.alias },
 		});
 
 		this.saved(id, secret, keys.authToken, link ? [link] : []);

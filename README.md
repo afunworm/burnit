@@ -23,7 +23,7 @@ Not into typing configuration? Click any setting in the status bar (`views:1`, `
 The full link is long, because it carries the key. To open a message on another device:
 
 -   **QR code**: click `QR CODE` next to any link and scan it with a phone. This keeps the full link, so nothing changes about the encryption.
--   **Short link**: add `alias test` to the configuration (or click `MAKE SHORT LINK` after saving) to get `https://<your-domain>/test`, which is easy to type. Short links are case-insensitive and **work once, for 15 minutes**. While a short link exists, the server holds the message's key, so the server operator could read the message during that window. A password still protects it, since the password never goes into a short link. If someone else uses your short link first, you get "not found" instead of the message, so interception doesn't go unnoticed.
+-   **Short link**: every new message comes with a random short link such as `https://<your-domain>/k7m2xq`, which is easy to type. To choose the name, add `alias test` to the configuration for `https://<your-domain>/test`. Short links are case-insensitive and **work once, for 15 minutes**. While a short link exists, the server holds the message's key, so the server operator could read the message during that window. A password still protects it, since the password never goes into a short link. If someone else uses your short link first, you get "not found" instead of the message, so interception doesn't go unnoticed.
 
 Signed-in users can make new short links (named or random), invalidate them, and show their QR codes from the message's page in their account.
 

@@ -174,3 +174,33 @@
 		padding: 0.375rem 0;
 	}
 }
+
+/* "Secret created": the log and config, with the full link's QR code beside them */
+.complete-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 1.5rem;
+}
+
+.complete-qr {
+	flex: none;
+	width: 11rem;
+	text-align: center;
+	font-size: 0.85em;
+}
+
+.complete-qr app-qr-code {
+	margin-top: 0;
+	margin-bottom: 0.375rem;
+}
+
+@media (max-width: 640px) {
+	.complete-head {
+		flex-direction: column;
+	}
+
+	.complete-qr {
+		align-self: center;
+	}
+}

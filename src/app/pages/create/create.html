@@ -108,7 +108,7 @@ your secret message</div>
 						<dd>Require a password to decrypt. Aliases: <code>pw</code>, <code>pwd</code>.</dd>
 						<dt>alias &lt;name&gt;</dt>
 						<dd>
-							Also make a short link with this name, 3 - 20 letters or numbers, e.g. <code>alias test</code> for
+							Name the short link every new message gets (random otherwise), 3 - 20 letters or numbers, e.g. <code>alias test</code> for
 							<code>/test</code>. It is easy to type on another device, but <span class="hl">works once, for 15 minutes</span>,
 							and until then the server holds the key. A password still protects the message. Alias: <code>name</code>.
 						</dd>
@@ -238,7 +238,7 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					<div class="opt">
 						<label for="opt-alias" class="opt-label">alias</label>
 						<div class="opt-choices">
-							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="none" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
+							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="random" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
 							<span class="dim">short link name, works once for 15 min</span>
 						</div>
 					</div>
@@ -263,34 +263,42 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 				</div>
 
 				<div class="dialog-body">
-					<p>&gt; encrypt AES-256-GCM ...... <span class="font-bold">ok</span></p>
-					<p>&gt; upload ciphertext ........ <span class="font-bold">ok</span></p>
-					@switch (savedToAccount()) {
-						@case ("with-key") {
-							<p>&gt; save to account ......... <span class="font-bold">ok</span></p>
-						}
-						@case ("without-key") {
-							<p>&gt; save to account ......... <span class="font-bold">ok</span> <span class="warn">(vault locked: no key copy, content can't be shown later)</span></p>
-						}
-					}
-					@if (shared(); as s) {
-						<p>&gt; config</p>
-						<dl class="config">
-							<dt>{{ id() ? "views left" : "views" }}</dt>
-							<dd><span class="bright">{{ s.views }}</span>{{ s.views === "unlimited" ? "" : s.views === "1" ? " (burns after reading)" : " (burns after the last one)" }}</dd>
-							<dt>expires</dt>
-							<dd><span class="bright">{{ s.expires }}</span> ({{ s.expiresAt }})</dd>
-							<dt>password</dt>
-							<dd><span [class.bright]="s.password">{{ s.password ? "on" : "off" }}</span></dd>
-							<dt>nocopy</dt>
-							<dd><span [class.bright]="s.nocopy">{{ s.nocopy ? "on" : "off" }}</span></dd>
-							<dt>id</dt>
-							<dd><span class="bright">{{ createdId() }}</span></dd>
-						</dl>
-					}
+					<div class="complete-head">
+						<div class="min-w-0">
+							<p>&gt; encrypt AES-256-GCM ...... <span class="font-bold">ok</span></p>
+							<p>&gt; upload ciphertext ........ <span class="font-bold">ok</span></p>
+							@switch (savedToAccount()) {
+								@case ("with-key") {
+									<p>&gt; save to account ......... <span class="font-bold">ok</span></p>
+								}
+								@case ("without-key") {
+									<p>&gt; save to account ......... <span class="font-bold">ok</span> <span class="warn">(vault locked: no key copy, content can't be shown later)</span></p>
+								}
+							}
+							@if (shared(); as s) {
+								<p>&gt; config</p>
+								<dl class="config">
+									<dt>{{ id() ? "views left" : "views" }}</dt>
+									<dd><span class="bright">{{ s.views }}</span>{{ s.views === "unlimited" ? "" : s.views === "1" ? " (burns after reading)" : " (burns after the last one)" }}</dd>
+									<dt>expires</dt>
+									<dd><span class="bright">{{ s.expires }}</span> ({{ s.expiresAt }})</dd>
+									<dt>password</dt>
+									<dd><span [class.bright]="s.password">{{ s.password ? "on" : "off" }}</span></dd>
+									<dt>nocopy</dt>
+									<dd><span [class.bright]="s.nocopy">{{ s.nocopy ? "on" : "off" }}</span></dd>
+									<dt>id</dt>
+									<dd><span class="bright">{{ createdId() }}</span></dd>
+								</dl>
+							}
+						</div>
+						<figure class="complete-qr">
+							<app-qr-code [value]="shareUrl()" />
+							<figcaption class="dim">scan: full link</figcaption>
+						</figure>
+					</div>
 
-					<p class="mt-3">&gt; link <span class="dim">(end-to-end: the key stays in the part after #)</span></p>
-					<app-link-card [url]="shareUrl()">
+					<p class="mt-3">&gt; link</p>
+					<app-link-card [url]="shareUrl()" qr="none">
 						@if (canShare) {
 							<button type="button" class="btn" (click)="shareLink()">SHARE</button>
 						}
@@ -298,7 +306,7 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 
 					<p class="mt-4">&gt; short link <span class="dim">(easy to type; the server holds the key until it's used)</span></p>
 					@for (link of shortLinks(); track link.code) {
-						<app-link-card class="mb-3" [url]="shortUrl(link)" [note]="linkNote(link)" />
+						<app-link-card class="mb-3" [url]="shortUrl(link)" [note]="linkNote(link)" qr="open" />
 					}
 					@if (linkError()) {
 						<p class="err" role="alert">ERR: {{ linkError() }}</p>
