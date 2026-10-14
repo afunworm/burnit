@@ -2,7 +2,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { createApp } from "../src/app.js";
-import { MessageStore } from "../src/store.js";
+import { Store } from "../src/store.js";
 
 const config = {
 	staticDir: "/nonexistent",
@@ -13,6 +13,10 @@ const config = {
 	maxFailedAttempts: 3,
 	createLimit: 1000,
 	openLimit: 1000,
+	accountLimit: 1000,
+	oidc: {},
+	publicUrl: "",
+	sessionDays: 30,
 };
 
 let store;
@@ -20,7 +24,7 @@ let server;
 let baseUrl;
 
 before(async () => {
-	store = new MessageStore(":memory:");
+	store = new Store(":memory:");
 	server = createApp({ store, config }).listen(0);
 	await new Promise((resolve) => server.once("listening", resolve));
 	baseUrl = `http://127.0.0.1:${server.address().port}/api`;

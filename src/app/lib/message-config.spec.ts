@@ -1,4 +1,4 @@
-import { addTime, formatDuration, parseMessage } from "./message-config";
+import { addTime, formatDuration, parseMessage, toEditorText } from "./message-config";
 
 describe("parseMessage", () => {
 	const now = new Date(2026, 0, 31, 12, 0, 0);
@@ -56,6 +56,22 @@ describe("parseMessage", () => {
 			now
 		);
 		expect(errors).toHaveLength(5);
+	});
+
+	it("uses the given defaults when a setting is not configured", () => {
+		const expiresAt = new Date(2026, 1, 3);
+		const { options } = parseMessage("nocopy\n---\nx", now, { maxViews: 4, expiresAt });
+		expect(options.maxViews).toBe(4);
+		expect(options.expiresAt).toBe(expiresAt);
+		expect(parseMessage("exp 2d\n---\nx", now, { expiresAt }).options.expiresAt).toEqual(addTime(now, 2, "day"));
+	});
+
+	it("round-trips an existing message through the editor text", () => {
+		const content = "nocopy\n---\nlooks like config";
+		const text = toEditorText(content, { viewsLeft: 2, password: "a b", nocopy: true });
+		const { options, errors } = parseMessage(text, now);
+		expect(errors).toEqual([]);
+		expect(options).toMatchObject({ content, maxViews: 2, password: "a b", nocopy: true });
 	});
 
 	it("handles Windows line endings", () => {

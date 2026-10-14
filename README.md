@@ -142,6 +142,23 @@ git pull && docker compose up -d --build
 | `MAX_FAILED_ATTEMPTS` | `10`                | Wrong passwords allowed before a message is destroyed.                                            |
 | `RATE_LIMIT_CREATE`   | `30`                | Messages one IP can create per 15 minutes.                                                        |
 | `RATE_LIMIT_OPEN`     | `60`                | Open attempts one IP can make per 15 minutes.                                                     |
+| `RATE_LIMIT_ACCOUNT`  | `600`               | Account API requests one IP can make per 15 minutes.                                              |
+
+### Accounts (optional)
+
+burnit works without accounts. To let people sign in with [PocketID](https://pocket-id.org) (or any OpenID Connect provider), create an OIDC client there with the callback URL `https://<your-domain>/auth/callback`, and set:
+
+| Variable             | Default    | Description                                                                         |
+| :------------------- | :--------- | :---------------------------------------------------------------------------------- |
+| `PUBLIC_URL`         |            | Public origin of burnit, e.g. `https://burnit.example.com`. Recommended.            |
+| `OIDC_ISSUER`        |            | The provider's URL, e.g. `https://id.example.com`.                                  |
+| `OIDC_CLIENT_ID`     |            | Client ID from the provider.                                                        |
+| `OIDC_CLIENT_SECRET` |            | Client secret from the provider.                                                    |
+| `OIDC_PROVIDER_NAME` | `PocketID` | Name on the sign-in button.                                                         |
+| `SESSION_DAYS`       | `30`       | How long a sign-in lasts.                                                           |
+| `HISTORY_DAYS`       | `30`       | How long destroyed messages stay listed (without content) in their owner's history. |
+
+Accounts are created on first sign-in. Signed-in users find their messages under `/account` (`Ctrl + K`), where they can read them again without using up a view, edit content and settings, or destroy them early.
 
 ## **How It Works**
 
@@ -150,6 +167,7 @@ git pull && docker compose up -d --build
 -   Two independent keys are derived with HKDF: an AES-256-GCM key that encrypts the message in the browser, and an access token. The server only stores the ciphertext and the SHA-256 hash of the access token.
 -   To open a message, the browser sends the access token. A wrong password or link is rejected without consuming a view, and too many failures destroy the message.
 -   Views are counted atomically in SQLite, and the last allowed view deletes the message in the same transaction. Deleted data is overwritten (`secure_delete`), and expired messages are purged every minute.
+-   Accounts don't weaken this. Sign-in uses the OIDC authorization code flow with PKCE, and the session cookie is `HttpOnly` and `SameSite=Lax`. To let owners read their messages again, each one carries a copy of its link secret and password, encrypted in the browser with a vault key. The vault key is stored on the server only wrapped with the user's vault passphrase (PBKDF2-SHA256, 600,000 iterations), so the server can't read owned messages either. When an owned message burns, its ciphertext and key copy are wiped; only the bookkeeping (views, dates) stays in the owner's history.
 
 ## **Development**
 

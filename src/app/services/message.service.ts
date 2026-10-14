@@ -11,7 +11,12 @@ export interface CreateMessageRequest {
 	maxViews: number;
 	/** Seconds from now */
 	expiresIn: number;
+	/** The owner's sealed copy of the key, when signed in with an unlocked vault */
+	ownerBlob?: string;
 }
+
+/** The link to a message. The secret stays in the fragment, which browsers never send to the server. */
+export const shareUrl = (origin: string, id: string, secret: string) => `${origin}/v/${id}#${secret}`;
 
 export interface MessageMetadata {
 	usePassword: boolean;

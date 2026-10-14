@@ -40,7 +40,21 @@ export function loadConfig() {
 		// Per-IP rate limits, per 15 minutes
 		createLimit: int("RATE_LIMIT_CREATE", 30),
 		openLimit: int("RATE_LIMIT_OPEN", 60),
+		accountLimit: int("RATE_LIMIT_ACCOUNT", 600),
 
 		purgeIntervalMs: 60 * 1000,
+
+		// Optional sign-in through an OpenID Connect provider such as PocketID
+		oidc: {
+			issuer: process.env.OIDC_ISSUER || "",
+			clientId: process.env.OIDC_CLIENT_ID || "",
+			clientSecret: process.env.OIDC_CLIENT_SECRET || "",
+			providerName: process.env.OIDC_PROVIDER_NAME || "PocketID",
+		},
+		// Public origin, e.g. https://burnit.example.com. Derived from the request when unset.
+		publicUrl: (process.env.PUBLIC_URL || "").replace(/\/+$/, ""),
+		sessionDays: int("SESSION_DAYS", 30),
+		// How long burned messages stay in their owner's history
+		historyDays: int("HISTORY_DAYS", 30),
 	};
 }

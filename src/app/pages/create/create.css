@@ -37,6 +37,12 @@
 	color: var(--dim);
 }
 
+.account-link {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 40%;
+}
+
 .link {
 	font-weight: 700;
 	word-break: break-all;

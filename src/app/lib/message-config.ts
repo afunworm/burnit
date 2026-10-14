@@ -110,15 +110,22 @@ const commandOf = (line: string) => line.trim().split(/\s+/)[0].toLowerCase();
  * keyword. Otherwise the whole input (including any `---`) is the message. Inside the
  * header, every line must be valid, so a typo like `pasword` is reported instead of
  * being silently ignored.
+ *
+ * `defaults` replaces the default view limit and expiry, e.g. with an existing
+ * message's current values while it is being edited.
  */
-export function parseMessage(input: string, now: Date = new Date()): ParseResult {
+export function parseMessage(
+	input: string,
+	now: Date = new Date(),
+	defaults: Partial<Pick<MessageOptions, "maxViews" | "expiresAt">> = {}
+): ParseResult {
 	const normalized = input.replace(/\r\n/g, "\n");
 	const options: MessageOptions = {
 		content: normalized,
 		password: "",
 		nocopy: false,
-		maxViews: DEFAULT_MAX_VIEWS,
-		expiresAt: addTime(now, DEFAULT_EXPIRATION.amount, DEFAULT_EXPIRATION.unit),
+		maxViews: defaults.maxViews ?? DEFAULT_MAX_VIEWS,
+		expiresAt: defaults.expiresAt ?? addTime(now, DEFAULT_EXPIRATION.amount, DEFAULT_EXPIRATION.unit),
 	};
 	const errors: string[] = [];
 
@@ -169,6 +176,17 @@ export function parseMessage(input: string, now: Date = new Date()): ParseResult
 	}
 
 	return { options, errors };
+}
+
+/** The editor text for an existing message: its settings as configuration, then the content. */
+export function toEditorText(
+	content: string,
+	settings: { viewsLeft: number; password: string; nocopy: boolean }
+): string {
+	const header = [`expires ${settings.viewsLeft} ${settings.viewsLeft === 1 ? "view" : "views"}`];
+	if (settings.password) header.push(`password ${settings.password}`);
+	if (settings.nocopy) header.push("nocopy");
+	return `${header.join("\n")}${SEPARATOR}${content}`;
 }
 
 /** Compact duration for display, e.g. "45m", "3h", "7d", "1y" (rounded to the largest whole unit). */

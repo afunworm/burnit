@@ -1,7 +1,16 @@
 <div class="screen">
 	<header class="titlebar">
-		<span class="path"><span class="font-bold">burnit</span> <span class="dim">&nbsp;&mdash; ~/new</span></span>
-		<span class="dim hidden sm:inline">e2e encrypted &middot; self-destructing</span>
+		<span class="path">
+			<span class="font-bold">burnit</span>
+			<span class="dim">&nbsp;&mdash; {{ id() ? "~/edit/" + id() : "~/new" }}</span>
+		</span>
+		@if (account.user(); as user) {
+			<a routerLink="/account" class="account-link">{{ user.name }}</a>
+		} @else if (account.enabled()) {
+			<a [href]="account.loginUrl('/create')" class="account-link">sign in</a>
+		} @else {
+			<span class="dim hidden sm:inline">e2e encrypted &middot; self-destructing</span>
+		}
 	</header>
 
 	@if (errors().length > 0) {
@@ -20,18 +29,35 @@
 		autocomplete="off"
 		class="editor"
 		aria-label="Secret message"
-		[placeholder]="placeholder"
+		[placeholder]="id() ? '' : placeholder"
+		[readOnly]="!!id() && !editing()"
 		[value]="message()"
 		(input)="message.set(editor.value)"
 	></textarea>
 
 	@let p = parsed();
 	<div class="statusline" aria-live="polite">
-		<span>views:{{ p.summary.views }}</span>
+		@if (id()) {
+			<span class="bright">edit:{{ id() }}</span>
+			<span>views left:{{ p.summary.views }}</span>
+		} @else {
+			<span>views:{{ p.summary.views }}</span>
+		}
 		<span>ttl:{{ p.summary.expires }}</span>
 		<span>pw:{{ p.summary.password ? "on" : "off" }}</span>
 		<span>nocopy:{{ p.summary.nocopy ? "on" : "off" }}</span>
-		<span>alias:{{ p.summary.alias }}</span>
+		@if (!id()) {
+			<span>alias:{{ p.summary.alias }}</span>
+			@switch (account.vaultState()) {
+				@case ("unlocked") {
+					<span title="Saved to your account, with a key copy in your vault">acct:on</span>
+				}
+				@case ("signed-out") {}
+				@default {
+					<span class="warn" title="Saved to your account, but without a key copy: unlock your vault to read it later">acct:locked</span>
+				}
+			}
+		}
 		@if (p.errorCount > 0) {
 			<span class="err">cfg:{{ p.errorCount }} error(s)</span>
 		}
@@ -45,6 +71,9 @@
 		<button type="button" class="key" (click)="toggleHelp()"><kbd>^H</kbd>Help</button>
 		<button type="button" class="key" (click)="insertPreset()"><kbd>^P</kbd>Preset</button>
 		<button type="button" class="key" (click)="reset()"><kbd>^R</kbd>Clear</button>
+		@if (account.enabled()) {
+			<button type="button" class="key" (click)="openAccount()"><kbd>^K</kbd>Account</button>
+		}
 		<button type="button" class="key" (click)="openGithub()"><kbd>^G</kbd>Source</button>
 	</nav>
 </div>
@@ -68,7 +97,7 @@
 your secret message</div>
 					<p class="pl-4">
 						Without config, a message <span class="hl">burns after 1 view or 1 week</span>. It is encrypted in
-						your browser; the key is only in the link (after <code>#</code>), so the server never sees it.
+						your browser, and the server never sees the key.
 					</p>
 
 					<h2>OPTIONS</h2>
@@ -108,11 +137,24 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 						<dd>Insert the default preset</dd>
 						<dt><kbd>Ctrl</kbd> + <kbd>R</kbd></dt>
 						<dd>Clear the editor</dd>
+						@if (account.enabled()) {
+							<dt><kbd>Ctrl</kbd> + <kbd>K</kbd></dt>
+							<dd>Your account and message history</dd>
+						}
 						<dt><kbd>Ctrl</kbd> + <kbd>G</kbd></dt>
 						<dd>Source code / host your own</dd>
 						<dt><kbd>Esc</kbd></dt>
 						<dd>Close dialogs</dd>
 					</dl>
+
+					@if (account.enabled()) {
+						<h2>ACCOUNT</h2>
+						<p class="pl-4">
+							Optional. Signed in, your messages are kept in your account, where you can read them again
+							(without using up a view), edit them, or destroy them early. Keys are sealed with a vault
+							passphrase only you know.
+						</p>
+					}
 
 					<h2>NOTES</h2>
 					<p class="pl-4">
@@ -127,17 +169,25 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 		<div class="dialog-backdrop">
 			<div class="dialog" role="dialog" aria-labelledby="complete-title">
 				<div class="dialog-title">
-					<span id="complete-title">SECRET CREATED</span>
+					<span id="complete-title">{{ id() ? "SECRET UPDATED" : "SECRET CREATED" }}</span>
 					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
 				</div>
 
 				<div class="dialog-body">
 					<p>&gt; encrypt AES-256-GCM ...... <span class="font-bold">ok</span></p>
 					<p>&gt; upload ciphertext ........ <span class="font-bold">ok</span></p>
+					@switch (savedToAccount()) {
+						@case ("with-key") {
+							<p>&gt; save to account ......... <span class="font-bold">ok</span></p>
+						}
+						@case ("without-key") {
+							<p>&gt; save to account ......... <span class="font-bold">ok</span> <span class="warn">(vault locked: no key copy, content can't be shown later)</span></p>
+						}
+					}
 					@if (shared(); as s) {
 						<p>&gt; config</p>
 						<dl class="config">
-							<dt>views</dt>
+							<dt>{{ id() ? "views left" : "views" }}</dt>
 							<dd><span class="bright">{{ s.views }}</span>{{ s.views === "unlimited" ? "" : s.views === "1" ? " (burns after reading)" : " (burns after the last one)" }}</dd>
 							<dt>expires</dt>
 							<dd><span class="bright">{{ s.expires }}</span> ({{ s.expiresAt }})</dd>
@@ -157,13 +207,22 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 						@if (canShare) {
 							<button type="button" class="btn" (click)="shareLink()">SHARE</button>
 						}
-						<button type="button" class="btn" (click)="closeDialog()">NEW MESSAGE</button>
+						<button type="button" class="btn" (click)="closeDialog()">{{ id() ? "BACK TO ACCOUNT" : "NEW MESSAGE" }}</button>
 					</div>
 
-					<p class="dim mt-4">
-						The part after # is the decryption key. Anyone with the full link can read the message; if you
-						lose it, the message is gone for good.
-					</p>
+					@if (id()) {
+						<p class="dim mt-4">
+							The link is unchanged.
+							@if (passwordChanged()) {
+								<span class="warn">The password changed: share the new one, the old one no longer works.</span>
+							}
+						</p>
+					} @else {
+						<p class="dim mt-4">
+							Anyone with the link can read the message;
+							{{ savedToAccount() === "with-key" ? "you can find it again in your account." : "if you lose it, the message is gone for good." }}
+						</p>
+					}
 				</div>
 			</div>
 		</div>

@@ -1,0 +1,268 @@
+<div class="screen">
+	<header class="titlebar">
+		<span class="path"><span class="font-bold">burnit</span> <span class="dim">&nbsp;&mdash; ~/account</span></span>
+		@if (account.user(); as user) {
+			<span class="dim hidden sm:inline">{{ user.email || user.name }}</span>
+		}
+	</header>
+
+	<main class="output">
+		@if (!ready()) {
+			<p class="cursor">&gt; loading session ...</p>
+		} @else if (!account.enabled()) {
+			<p class="err">ERR: accounts are not enabled on this server.</p>
+			<p class="dim">&gt; burnit works fine without one. Press ^S to write a message.</p>
+		} @else if (account.user(); as user) {
+			<p>&gt; signed in as <span class="bright">{{ user.name }}</span></p>
+
+			@switch (account.vaultState()) {
+				@case ("setup") {
+					<form class="mt-4" (submit)="setupVault($event)">
+						<p>&gt; set up your vault</p>
+						<p class="dim pl-4 max-w-2xl">
+							To read your messages here later, burnit keeps a copy of each message key, sealed with a
+							passphrase that never leaves your browser. The server can't open it, and neither can we: if
+							you forget it, older messages can't be decrypted again.
+						</p>
+						<label class="prompt-line mt-3">
+							<span class="flex-none">passphrase:</span>
+							<input #pass type="password" autocomplete="new-password" class="min-w-0 flex-1" [value]="passphrase()" (input)="passphrase.set(pass.value)" />
+						</label>
+						<label class="prompt-line mt-2">
+							<span class="flex-none">confirm:&nbsp;&nbsp;&nbsp;</span>
+							<input #confirm type="password" autocomplete="new-password" class="min-w-0 flex-1" [value]="passphraseConfirm()" (input)="passphraseConfirm.set(confirm.value)" />
+						</label>
+						@if (vaultError()) {
+							<p class="err mt-2" role="alert">ERR: {{ vaultError() }}</p>
+						}
+						@if (busy()) {
+							<p class="cursor mt-3">&gt; creating vault ...</p>
+						} @else {
+							<button type="submit" class="btn mt-3">CREATE VAULT</button>
+						}
+					</form>
+				}
+				@case ("locked") {
+					<form class="mt-4" (submit)="unlockVault($event)">
+						<p>&gt; vault <span class="bright">locked</span> on this device: unlock it to read your messages</p>
+						<label class="prompt-line mt-3">
+							<span class="flex-none">passphrase:</span>
+							<input #pass type="password" autocomplete="current-password" class="min-w-0 flex-1" [value]="passphrase()" (input)="passphrase.set(pass.value)" />
+						</label>
+						@if (vaultError()) {
+							<p class="err mt-2" role="alert">ERR: {{ vaultError() }}</p>
+						}
+						@if (busy()) {
+							<p class="cursor mt-3">&gt; unlocking ...</p>
+						} @else {
+							<button type="submit" class="btn mt-3">UNLOCK</button>
+							<span class="dim ml-2">forgot it? reset the vault in Settings</span>
+						}
+					</form>
+				}
+				@case ("unlocked") {
+					<p>&gt; vault unlocked on this device</p>
+				}
+			}
+
+			<p class="mt-6">&gt; ls ~/messages <span class="dim">({{ rows().length }})</span></p>
+			@if (error()) {
+				<p class="err" role="alert">ERR: {{ error() }}</p>
+			}
+			@if (loading() && rows().length === 0) {
+				<p class="cursor">&gt; loading ...</p>
+			} @else if (rows().length === 0) {
+				<p class="dim">&gt; nothing here yet. Messages you create while signed in show up here.</p>
+			} @else {
+				<div class="ls" role="list">
+					<div class="ls-row ls-head dim" aria-hidden="true">
+						<span>ID</span><span>STATUS</span><span>VIEWS</span><span>TTL</span><span>PREVIEW</span>
+					</div>
+					@for (row of rows(); track row.id) {
+						<button type="button" role="listitem" class="ls-row" [class.burned]="row.burnedAt" (click)="select(row)">
+							<span class="font-bold">{{ row.id }}</span>
+							<span [class.bright]="!row.burnedAt">{{ status(row) }}</span>
+							<span>{{ views(row) }}</span>
+							<span>{{ when(row) }}</span>
+							<span class="ls-preview" [class.dim]="!row.record">{{ preview(row) }}</span>
+						</button>
+					}
+				</div>
+				<p class="dim mt-3">Burned messages stay listed (without content) for a while, then disappear.</p>
+			}
+		} @else {
+			<p>&gt; accounts are optional; burnit works without one.</p>
+			<p>&gt; signed in, you can:</p>
+			<ul class="pl-4">
+				<li>- read your messages again, without using up a view</li>
+				<li>- edit them, change their limits, or destroy them early</li>
+			</ul>
+			@switch (login()) {
+				@case ("failed") {
+					<p class="err mt-3" role="alert">ERR: sign-in failed or was cancelled. Please try again.</p>
+				}
+				@case ("unavailable") {
+					<p class="err mt-3" role="alert">ERR: {{ account.provider() }} is unreachable right now. Please try again later.</p>
+				}
+			}
+			<a class="btn mt-4 no-underline" [href]="loginUrl()">SIGN IN WITH {{ account.provider() | uppercase }}</a>
+		}
+	</main>
+
+	<nav class="keybar" aria-label="Actions">
+		<button type="button" class="key" (click)="newMessage()"><kbd>^S</kbd>New</button>
+		@if (account.user()) {
+			<button type="button" class="key" [disabled]="loading()" (click)="refresh()"><kbd>^R</kbd>Refresh</button>
+			@if (account.vaultState() === "unlocked") {
+				<button type="button" class="key" (click)="lockVault()">Lock</button>
+			}
+			<button type="button" class="key" (click)="openSettings()">Settings</button>
+			<button type="button" class="key" (click)="logout()">Log out</button>
+		}
+	</nav>
+</div>
+
+@switch (dialog()) {
+	@case ("detail") {
+		@if (selected(); as row) {
+			<div class="dialog-backdrop" (click)="closeDialog()">
+				<div class="dialog" role="dialog" aria-labelledby="detail-title" (click)="$event.stopPropagation()">
+					<div class="dialog-title">
+						<span id="detail-title">MESSAGE {{ row.id }}</span>
+						<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+					</div>
+
+					<div class="dialog-body">
+						<dl class="config">
+							<dt>status</dt>
+							<dd><span [class.bright]="!row.burnedAt">{{ statusLong(row) }}</span>{{ row.burnedAt ? " · " + dateTime(row.burnedAt) : "" }}</dd>
+							<dt>views</dt>
+							<dd>{{ row.views }} of {{ row.maxViews === 0 ? "unlimited" : row.maxViews }}</dd>
+							@if (!row.burnedAt) {
+								<dt>expires</dt>
+								<dd>in {{ when(row) }} ({{ dateTime(row.expiresAt) }})</dd>
+							}
+							<dt>created</dt>
+							<dd>{{ dateTime(row.createdAt) }}</dd>
+							<dt>password</dt>
+							<dd>
+								@if (row.record?.password; as password) {
+									@if (showPassword()) {
+										<span class="bright">{{ password }}</span>
+									} @else {
+										<button type="button" class="reveal" (click)="showPassword.set(true)">on (show)</button>
+									}
+								} @else {
+									{{ row.usePassword ? "on" : "off" }}
+								}
+							</dd>
+							<dt>nocopy</dt>
+							<dd>{{ row.nocopy ? "on" : "off" }}</dd>
+							@if (row.failedAttempts > 0 && !row.burnedAt) {
+								<dt>failed</dt>
+								<dd class="warn">{{ row.failedAttempts }} wrong password attempt(s)</dd>
+							}
+						</dl>
+
+						@if (!row.burnedAt) {
+							@if (row.record) {
+								<div class="code-block link select-all">{{ link(row) }}</div>
+								@if (decrypting()) {
+									<p class="cursor">&gt; decrypting ...</p>
+								} @else if (content() !== null) {
+									<p class="dim">&gt; content (reading it here doesn't use a view)</p>
+									<pre class="code-block content">{{ content() }}</pre>
+								}
+							} @else if (row.ownerBlob) {
+								<p class="warn mt-3">&gt; unlock your vault to see the link and content</p>
+							} @else {
+								<p class="dim mt-3">&gt; no key copy was kept for this message (it was created while the vault was locked, or before a vault reset), so its link and content can't be shown</p>
+							}
+						} @else {
+							<p class="dim mt-3">&gt; the content was destroyed with the message</p>
+						}
+
+						@if (detailError()) {
+							<p class="err mt-2" role="alert">ERR: {{ detailError() }}</p>
+						}
+
+						<div class="mt-4 flex flex-wrap gap-2">
+							@if (!row.burnedAt && row.record) {
+								<button type="button" class="btn" (click)="copyLink(row)">{{ copied() ? "COPIED" : "COPY LINK" }}</button>
+								<button type="button" class="btn" (click)="edit(row)">EDIT</button>
+							}
+							@if (!row.burnedAt) {
+								<button type="button" class="btn" [class.danger]="confirming() === 'revoke'" [disabled]="busy()" (click)="revoke(row)">
+									{{ confirming() === "revoke" ? "CONFIRM: DESTROY NOW" : "DESTROY NOW" }}
+								</button>
+							}
+							<button type="button" class="btn" [class.danger]="confirming() === 'delete'" [disabled]="busy()" (click)="remove(row)">
+								{{ confirming() === "delete" ? "CONFIRM: DELETE" : row.burnedAt ? "REMOVE FROM HISTORY" : "DELETE" }}
+							</button>
+						</div>
+						@if (confirming() === "revoke") {
+							<p class="warn mt-2">The link stops working for everyone. It stays in your history, without content.</p>
+						} @else if (confirming() === "delete") {
+							<p class="warn mt-2">{{ row.burnedAt ? "The entry disappears from your history." : "The message is destroyed and removed from your history." }}</p>
+						}
+					</div>
+				</div>
+			</div>
+		}
+	}
+	@case ("settings") {
+		<div class="dialog-backdrop" (click)="closeDialog()">
+			<div class="dialog" role="dialog" aria-labelledby="settings-title" (click)="$event.stopPropagation()">
+				<div class="dialog-title">
+					<span id="settings-title">SETTINGS</span>
+					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+				</div>
+
+				<div class="dialog-body">
+					@if (account.user()?.vault) {
+						<h2>VAULT PASSPHRASE</h2>
+						<form class="pl-4" (submit)="changePassphrase($event)">
+							<label class="prompt-line mt-2">
+								<span class="flex-none">current:</span>
+								<input #current type="password" autocomplete="current-password" class="min-w-0 flex-1" [value]="currentPassphrase()" (input)="currentPassphrase.set(current.value)" />
+							</label>
+							<label class="prompt-line mt-2">
+								<span class="flex-none">new:&nbsp;&nbsp;&nbsp;&nbsp;</span>
+								<input #next type="password" autocomplete="new-password" class="min-w-0 flex-1" [value]="newPassphrase()" (input)="newPassphrase.set(next.value)" />
+							</label>
+							<label class="prompt-line mt-2">
+								<span class="flex-none">confirm:</span>
+								<input #confirmNext type="password" autocomplete="new-password" class="min-w-0 flex-1" [value]="newPassphraseConfirm()" (input)="newPassphraseConfirm.set(confirmNext.value)" />
+							</label>
+							<div class="mt-3 flex flex-wrap gap-2">
+								<button type="submit" class="btn" [disabled]="busy()">CHANGE</button>
+								<button type="button" class="btn" [class.danger]="confirming() === 'reset-vault'" [disabled]="busy()" (click)="resetVault()">
+									{{ confirming() === "reset-vault" ? "CONFIRM: RESET VAULT" : "FORGOT IT: RESET" }}
+								</button>
+							</div>
+							<p class="dim mt-2">
+								Forgot it? Fill in a new passphrase and reset. Messages created before the reset keep
+								working, but you can no longer see their link or content here.
+							</p>
+						</form>
+					}
+
+					@if (settingsMessage()) {
+						<p class="bright mt-3" role="status">&gt; {{ settingsMessage() }}</p>
+					}
+					@if (settingsError()) {
+						<p class="err mt-3" role="alert">ERR: {{ settingsError() }}</p>
+					}
+
+					<h2>DELETE ACCOUNT</h2>
+					<div class="pl-4">
+						<p class="dim">Destroys every message in your account, and signs you out.</p>
+						<button type="button" class="btn mt-2" [class.danger]="confirming() === 'delete-account'" [disabled]="busy()" (click)="deleteAccount()">
+							{{ confirming() === "delete-account" ? "CONFIRM: DELETE EVERYTHING" : "DELETE ACCOUNT" }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}

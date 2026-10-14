@@ -18,6 +18,15 @@ services:
   environment:
    # Requests arrive through the reverse proxy; trust one hop so rate limits see real client IPs
    - TRUST_PROXY=${TRUST_PROXY:-1}
+   # Optional sign-in with PocketID (or any OpenID Connect provider); leave unset to disable accounts.
+   # Register the callback URL <PUBLIC_URL>/auth/callback with the provider.
+   - PUBLIC_URL
+   - OIDC_ISSUER
+   - OIDC_CLIENT_ID
+   - OIDC_CLIENT_SECRET
+   - OIDC_PROVIDER_NAME
+   - SESSION_DAYS
+   - HISTORY_DAYS
    # Optional limits (see README); unset = defaults
    - MAX_TTL_DAYS
    - MAX_VIEWS

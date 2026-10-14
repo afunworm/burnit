@@ -2,14 +2,6 @@
 	display: block;
 }
 
-.prompt-line {
-	display: flex;
-	gap: 0.75rem;
-	max-width: 32rem;
-	padding-bottom: 0.25rem;
-	border-bottom: 1px solid var(--dim);
-}
-
 .divider {
 	margin: 0.75rem 0 1rem;
 	border: 0;
