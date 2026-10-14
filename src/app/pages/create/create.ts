@@ -82,7 +82,7 @@ const summarize = (options: MessageOptions, now: Date): Summary => ({
 	expires: formatDuration(options.expiresAt.getTime() - now.getTime()),
 	password: options.password !== "",
 	nocopy: options.nocopy,
-	alias: options.alias ?? "random",
+	alias: options.alias ?? "none",
 	expiresAt: options.expiresAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
 });
 
@@ -359,8 +359,7 @@ export class CreatePage implements OnInit {
 			maxViews: options.maxViews,
 			expiresIn: secondsUntil(options.expiresAt, now),
 			ownerBlob,
-			// Every new message gets a short link: named by the alias, or random
-			link: { secret, code: options.alias },
+			link: options.alias ? { secret, code: options.alias } : undefined,
 		});
 
 		this.saved(id, secret, keys.authToken, link ? [link] : []);

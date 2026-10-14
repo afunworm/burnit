@@ -108,7 +108,7 @@ your secret message</div>
 						<dd>Require a password to decrypt. Aliases: <code>pw</code>, <code>pwd</code>.</dd>
 						<dt>alias &lt;name&gt;</dt>
 						<dd>
-							Name the short link every new message gets (random otherwise), 3 - 20 letters or numbers, e.g. <code>alias test</code> for
+							Also make a short link with this name, 3 - 20 letters or numbers, e.g. <code>alias test</code> for
 							<code>/test</code>. It is easy to type on another device, but <span class="hl">works once, for 15 minutes</span>,
 							and until then the server holds the key. A password still protects the message. Alias: <code>name</code>.
 						</dd>
@@ -238,7 +238,7 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					<div class="opt">
 						<label for="opt-alias" class="opt-label">alias</label>
 						<div class="opt-choices">
-							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="random" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
+							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="none" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
 							<span class="dim">short link name, works once for 15 min</span>
 						</div>
 					</div>
