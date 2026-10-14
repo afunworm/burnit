@@ -16,6 +16,8 @@ Type in any message that you want to share, and press `Ctrl + S` or click the `S
 
 The part of the link after `#` is the decryption key. It never leaves the browser, so the server only ever stores encrypted data. Anyone with the full link can open the message, and the message cannot be recovered if the link is lost.
 
+Not into typing configuration? Click any setting in the status bar (`views:1`, `ttl:7d`, ...) or press `Ctrl + O` to pick views, expiry, password, `nocopy` and alias from a menu. Your choices are written as configuration lines at the top of the message, so both ways give the same result.
+
 ### Advanced Usage
 
 By default, a message can only be seen once, and has an expiration of 7 days from the date it was created. The message is deleted from the server as soon as it is opened for the last time, and expired messages are purged automatically. You can override and customize this behavior by adding specific configurations to the message by typing the configurations (separated by a linebreak for each configuration) before the message, separating the configurations and the message by `---`.

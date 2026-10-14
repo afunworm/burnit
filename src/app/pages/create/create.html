@@ -36,18 +36,18 @@
 	></textarea>
 
 	@let p = parsed();
-	<div class="statusline" aria-live="polite">
+	<div class="statusline" aria-live="polite" aria-label="Message options">
 		@if (id()) {
 			<span class="bright">edit:{{ id() }}</span>
-			<span>views left:{{ p.summary.views }}</span>
+			<button type="button" class="stat" title="Change how many more views it allows" (click)="openOptions('views')">views left:{{ p.summary.views }}</button>
 		} @else {
-			<span>views:{{ p.summary.views }}</span>
+			<button type="button" class="stat" title="Change how many views it allows" (click)="openOptions('views')">views:{{ p.summary.views }}</button>
 		}
-		<span>ttl:{{ p.summary.expires }}</span>
-		<span>pw:{{ p.summary.password ? "on" : "off" }}</span>
-		<span>nocopy:{{ p.summary.nocopy ? "on" : "off" }}</span>
+		<button type="button" class="stat" title="Change when it expires" (click)="openOptions('time')">ttl:{{ p.summary.expires }}</button>
+		<button type="button" class="stat" title="Set a password" (click)="openOptions('password')">pw:{{ p.summary.password ? "on" : "off" }}</button>
+		<button type="button" class="stat" title="Make it harder to copy" (click)="openOptions('nocopy')">nocopy:{{ p.summary.nocopy ? "on" : "off" }}</button>
 		@if (!id()) {
-			<span>alias:{{ p.summary.alias }}</span>
+			<button type="button" class="stat" title="Choose a custom link name" (click)="openOptions('alias')">alias:{{ p.summary.alias }}</button>
 			@switch (account.vaultState()) {
 				@case ("unlocked") {
 					<span title="Saved to your account, with a key copy in your vault">acct:on</span>
@@ -68,8 +68,8 @@
 		<button type="button" class="key" [disabled]="submitting()" (click)="save()">
 			<kbd>^S</kbd>{{ submitting() ? "Encrypting..." : "Save" }}
 		</button>
+		<button type="button" class="key" (click)="openOptions()"><kbd>^O</kbd>Options</button>
 		<button type="button" class="key" (click)="toggleHelp()"><kbd>^H</kbd>Help</button>
-		<button type="button" class="key" (click)="insertPreset()"><kbd>^P</kbd>Preset</button>
 		<button type="button" class="key" (click)="reset()"><kbd>^R</kbd>Clear</button>
 		@if (account.enabled()) {
 			<button type="button" class="key" (click)="openAccount()"><kbd>^K</kbd>Account</button>
@@ -131,6 +131,8 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					<dl class="options hint-keys">
 						<dt><kbd>Ctrl</kbd> + <kbd>S</kbd> / <kbd>Enter</kbd></dt>
 						<dd>Encrypt and save</dd>
+						<dt><kbd>Ctrl</kbd> + <kbd>O</kbd></dt>
+						<dd>Options: pick settings without typing config</dd>
 						<dt><kbd>Ctrl</kbd> + <kbd>H</kbd> / <kbd>F1</kbd></dt>
 						<dd>Toggle this help</dd>
 						<dt><kbd>Ctrl</kbd> + <kbd>P</kbd></dt>
@@ -161,6 +163,91 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 						Config is only read when the first line is a keyword; otherwise everything is the message. Full docs:
 						<a href="https://github.com/afunworm/burnit?tab=readme-ov-file#available-configurations" target="_blank" rel="noopener">github.com/afunworm/burnit</a>
 					</p>
+				</div>
+			</div>
+		</div>
+	}
+	@case ("options") {
+		@let c = config();
+		@let start = optionsStart();
+		<div class="dialog-backdrop" (click)="closeDialog()">
+			<div class="dialog options-dialog" role="dialog" aria-labelledby="options-title" (click)="$event.stopPropagation()">
+				<div class="dialog-title">
+					<span id="options-title">OPTIONS</span>
+					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+				</div>
+
+				<div class="dialog-body">
+					<p class="dim">Pick settings here, or type them as config lines; both do the same thing.</p>
+
+					<div class="opt" role="group" aria-labelledby="opt-views-label">
+						<span id="opt-views-label" class="opt-label">{{ id() ? "views left" : "views" }}</span>
+						<div class="opt-choices">
+							@for (amount of viewPresets; track amount; let first = $first) {
+								<button type="button" class="chip" [id]="first ? 'opt-views' : null" [attr.aria-pressed]="currentViews() === amount" (click)="setViews(amount)">{{ amount }}</button>
+							}
+							<button type="button" class="chip" [attr.aria-pressed]="currentViews() === 0" (click)="setViews(0)">unlimited</button>
+							<label class="chip-input">
+								<span class="dim">other:</span>
+								<input #customViews type="number" min="0" inputmode="numeric" aria-label="Other number of views" [value]="viewPresets.includes(currentViews()) || currentViews() === 0 ? '' : currentViews()" (input)="customViews.value && setViews(+customViews.value)" />
+							</label>
+						</div>
+					</div>
+
+					<div class="opt" role="group" aria-labelledby="opt-time-label">
+						<span id="opt-time-label" class="opt-label">expires in</span>
+						<div class="opt-choices">
+							@if (id()) {
+								<button type="button" class="chip" id="opt-time" [attr.aria-pressed]="!c.time" (click)="setTime(null)">unchanged</button>
+							}
+							@for (preset of timePresets; track preset.label; let first = $first) {
+								<button type="button" class="chip" [id]="first && !id() ? 'opt-time' : null" [attr.aria-pressed]="isTime(preset)" (click)="setTime(preset.amount, preset.unit)">{{ preset.label }}</button>
+							}
+							<label class="chip-input" [class.active]="isCustomTime()">
+								<span class="dim">other:</span>
+								<input #customTime type="number" min="1" inputmode="numeric" aria-label="Other expiry amount" [value]="isCustomTime() ? currentTime()?.amount : ''" (input)="customTime.value && setTime(+customTime.value)" />
+								<select #customUnit aria-label="Other expiry unit" [value]="customTimeUnit()" (change)="setCustomTimeUnit($any(customUnit.value), customTime.value)">
+									@for (unit of timeUnits; track unit) {
+										<option [value]="unit">{{ unit }}s</option>
+									}
+								</select>
+							</label>
+						</div>
+					</div>
+
+					<div class="opt">
+						<label for="opt-password" class="opt-label">password</label>
+						<div class="opt-choices">
+							<input #pw id="opt-password" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" class="opt-text" placeholder="none" [value]="start.password ?? ''" (input)="setText('password', pw.value)" />
+						</div>
+					</div>
+
+					<div class="opt" role="group" aria-labelledby="opt-nocopy-label">
+						<span id="opt-nocopy-label" class="opt-label">nocopy</span>
+						<div class="opt-choices">
+							<button type="button" class="chip" id="opt-nocopy" [attr.aria-pressed]="!c.nocopy" (click)="setNocopy(false)">off</button>
+							<button type="button" class="chip" [attr.aria-pressed]="c.nocopy" (click)="setNocopy(true)">on</button>
+							<span class="dim">makes the text harder to copy</span>
+						</div>
+					</div>
+
+					@if (!id()) {
+						<div class="opt">
+							<label for="opt-alias" class="opt-label">alias</label>
+							<div class="opt-choices">
+								<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="random" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
+								<span class="dim">3 - 20 letters or numbers</span>
+							</div>
+						</div>
+					}
+
+					@if (parsed().errorCount > 0) {
+						<p class="err mt-3">ERR: the config has {{ parsed().errorCount }} problem(s); check the lines at the top of your message.</p>
+					}
+
+					<div class="mt-4 flex flex-wrap gap-2">
+						<button type="button" class="btn" (click)="closeDialog()">DONE</button>
+					</div>
 				</div>
 			</div>
 		</div>

@@ -1,4 +1,12 @@
-import { addTime, formatDuration, parseMessage, toEditorText } from "./message-config";
+import {
+	addTime,
+	configLine,
+	formatDuration,
+	parseMessage,
+	readConfig,
+	setConfigLine,
+	toEditorText,
+} from "./message-config";
 
 describe("parseMessage", () => {
 	const now = new Date(2026, 0, 31, 12, 0, 0);
@@ -78,6 +86,33 @@ describe("parseMessage", () => {
 		const { options } = parseMessage("nocopy\r\n---\r\nline1\r\nline2", now);
 		expect(options.nocopy).toBe(true);
 		expect(options.content).toBe("line1\nline2");
+	});
+});
+
+describe("setConfigLine / readConfig", () => {
+	it("adds a header to plain text", () => {
+		expect(setConfigLine("hello", "views", configLine({ kind: "views", amount: 3 }))).toBe("expires 3 views\n---\nhello");
+	});
+
+	it("replaces lines of the same kind and keeps the rest", () => {
+		const input = "pw x\nexpires 2d\nbogus\nexpires 1 view\n---\nbody";
+		const output = setConfigLine(input, "time", configLine({ kind: "time", amount: 1, unit: "hour" }));
+		expect(output).toBe("pw x\nbogus\nexpires 1 view\nexpires 1 hour\n---\nbody");
+		expect(readConfig(output)).toEqual({ password: "x", views: 1, time: { amount: 1, unit: "hour" }, nocopy: false });
+	});
+
+	it("removes the header once the last line goes", () => {
+		expect(setConfigLine("nocopy\n---\nbody", "nocopy", null)).toBe("body");
+	});
+
+	it("keeps a header when the content itself looks like configuration", () => {
+		const output = setConfigLine("nocopy\n---\npw x\n---\nbody", "nocopy", null);
+		expect(parseMessage(output).options.content).toBe("pw x\n---\nbody");
+	});
+
+	it("writes lines the parser understands", () => {
+		const text = setConfigLine("x", "time", configLine({ kind: "time", amount: 10, unit: "minute" }));
+		expect(parseMessage(text, new Date(0)).options.expiresAt).toEqual(addTime(new Date(0), 10, "minute"));
 	});
 });
 

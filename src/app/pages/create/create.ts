@@ -3,7 +3,19 @@ import { DOCUMENT } from "@angular/common";
 import { Router, RouterLink } from "@angular/router";
 import { MessageService, apiError, shareUrl } from "../../services/message.service";
 import { AccountService, UpdateMessageRequest } from "../../services/account.service";
-import { MessageOptions, formatDuration, parseMessage, toEditorText } from "../../lib/message-config";
+import {
+	ConfigValues,
+	DEFAULT_EXPIRATION,
+	DEFAULT_MAX_VIEWS,
+	MessageOptions,
+	TimeUnit,
+	configLine,
+	formatDuration,
+	parseMessage,
+	readConfig,
+	setConfigLine,
+	toEditorText,
+} from "../../lib/message-config";
 import {
 	MessageKeys,
 	decrypt,
@@ -15,7 +27,18 @@ import {
 } from "../../lib/crypto";
 import { OwnerRecord, previewOf } from "../../lib/vault";
 
-type Dialog = "none" | "help" | "complete";
+type Dialog = "none" | "help" | "complete" | "options";
+type OptionField = "views" | "time" | "password" | "nocopy" | "alias";
+
+const VIEW_PRESETS = [1, 2, 3, 5, 10];
+const TIME_PRESETS: { amount: number; unit: TimeUnit; label: string }[] = [
+	{ amount: 10, unit: "minute", label: "10 min" },
+	{ amount: 1, unit: "hour", label: "1 hour" },
+	{ amount: 1, unit: "day", label: "1 day" },
+	{ amount: 1, unit: "week", label: "1 week" },
+	{ amount: 1, unit: "month", label: "1 month" },
+];
+const TIME_UNIT_CHOICES: TimeUnit[] = ["minute", "hour", "day", "week", "month", "year"];
 
 const PRESET = "expires 1 view\nexpires 1 week\n---\nYour message goes here...";
 const GITHUB_URL = "https://github.com/afunworm/burnit";
@@ -105,6 +128,68 @@ export class CreatePage implements OnInit {
 		return { summary: summarize(options, now), errorCount: errors.length, length: options.content.length };
 	});
 
+	/* ---------- Options panel: point-and-click editing of the config lines ---------- */
+
+	protected readonly viewPresets = VIEW_PRESETS;
+	protected readonly timePresets = TIME_PRESETS;
+	protected readonly timeUnits = TIME_UNIT_CHOICES;
+	protected readonly config = computed(() => readConfig(this.message()));
+	/** Text inputs are filled once when the panel opens, so rewriting the header never fights the typing */
+	protected readonly optionsStart = signal<ConfigValues>({ nocopy: false });
+	protected readonly customTimeUnit = signal<TimeUnit>("day");
+
+	/** The view limit in effect, configured or default */
+	protected readonly currentViews = computed(() => this.config().views ?? this.editing()?.viewsLeft ?? DEFAULT_MAX_VIEWS);
+
+	/** The configured time; undefined means the default (create) or the current expiry (edit) */
+	protected readonly currentTime = computed(
+		() => this.config().time ?? (this.editing() ? undefined : { ...DEFAULT_EXPIRATION })
+	);
+
+	protected openOptions(focus: OptionField = "views"): void {
+		this.optionsStart.set(this.config());
+		this.customTimeUnit.set(this.config().time?.unit ?? "day");
+		this.dialog.set("options");
+		// Focus the setting that was clicked once the panel has rendered
+		setTimeout(() => this.document.getElementById(`opt-${focus}`)?.focus());
+	}
+
+	protected setViews(amount: number): void {
+		if (!Number.isSafeInteger(amount) || amount < 0) return;
+		this.message.update((text) => setConfigLine(text, "views", configLine({ kind: "views", amount })));
+	}
+
+	protected setTime(amount: number | null, unit: TimeUnit = this.customTimeUnit()): void {
+		if (amount !== null && (!Number.isSafeInteger(amount) || amount < 1)) return;
+		const line = amount === null ? null : configLine({ kind: "time", amount, unit });
+		this.message.update((text) => setConfigLine(text, "time", line));
+	}
+
+	protected setCustomTimeUnit(unit: TimeUnit, amount: string): void {
+		this.customTimeUnit.set(unit);
+		if (amount) this.setTime(Number(amount), unit);
+	}
+
+	protected setText(kind: "password" | "alias", value: string): void {
+		const trimmed = value.trim();
+		const line = trimmed ? configLine({ kind, value: trimmed }) : null;
+		this.message.update((text) => setConfigLine(text, kind, line));
+	}
+
+	protected setNocopy(on: boolean): void {
+		this.message.update((text) => setConfigLine(text, "nocopy", on ? "nocopy" : null));
+	}
+
+	protected isTime(preset: { amount: number; unit: TimeUnit }): boolean {
+		const current = this.currentTime();
+		return current?.amount === preset.amount && current.unit === preset.unit;
+	}
+
+	protected isCustomTime(): boolean {
+		const current = this.currentTime();
+		return !!current && !this.timePresets.some((preset) => this.isTime(preset));
+	}
+
 	/** While editing, leaving out a setting keeps its current value */
 	private readonly defaults = computed(() => {
 		const editing = this.editing();
@@ -137,6 +222,7 @@ export class CreatePage implements OnInit {
 			p: () => this.insertPreset(),
 			g: () => this.openGithub(),
 			k: () => this.openAccount(),
+			o: () => (this.dialog() === "options" ? this.closeDialog() : this.openOptions()),
 		};
 		const action = actions[event.key.toLowerCase()];
 		if (action) {
