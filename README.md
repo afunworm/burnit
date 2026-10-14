@@ -18,6 +18,15 @@ The part of the link after `#` is the decryption key. It never leaves the browse
 
 Not into typing configuration? Click any setting in the status bar (`views:1`, `ttl:7d`, ...) or press `Ctrl + O` to pick views, expiry, password, `nocopy` and alias from a menu. Your choices are written as configuration lines at the top of the message, so both ways give the same result.
 
+### Short Links and QR Codes
+
+The full link is long, because it carries the key. To open a message on another device:
+
+-   **QR code**: click `QR CODE` next to any link and scan it with a phone. This keeps the full link, so nothing changes about the encryption.
+-   **Short link**: add `alias test` to the configuration (or click `MAKE SHORT LINK` after saving) to get `https://<your-domain>/test`, which is easy to type. Short links are case-insensitive and **work once, for 15 minutes**. While a short link exists, the server holds the message's key, so the server operator could read the message during that window. A password still protects it, since the password never goes into a short link. If someone else uses your short link first, you get "not found" instead of the message, so interception doesn't go unnoticed.
+
+Signed-in users can make new short links (named or random), invalidate them, and show their QR codes from the message's page in their account.
+
 ### Advanced Usage
 
 By default, a message can only be seen once, and has an expiration of 7 days from the date it was created. The message is deleted from the server as soon as it is opened for the last time, and expired messages are purged automatically. You can override and customize this behavior by adding specific configurations to the message by typing the configurations (separated by a linebreak for each configuration) before the message, separating the configurations and the message by `---`.
@@ -50,13 +59,13 @@ This message requires the password "secret sauce" to open, and will be destroyed
 2. Each configuration has to be on its own line.
 3. Configuration is only recognized when the first line starts with a configuration keyword. Otherwise (including when a message starts with `---`), the whole text is saved as the message with the default configuration.
 4. Inside the configuration block, every line must be valid. Unknown or malformed lines are reported, and the message is not saved.
-5. If a message with a requested `alias` already exists, the message creation will fail.
+5. If the requested `alias` is in use by another live short link, the message is not created.
 6. Messages always expire within 1 year (configurable by the host, see `MAX_TTL_DAYS`).
 
 | Configuration | Alias                                                                    | Explanation                                                                                        | Example           |
 | :------------ | :----------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :---------------- |
 | `nocopy`      | `obfuscate`, `obfuscated`                                                | Attempt to make the message uncopiable from the browser.                                           | `nocopy`          |
-| `alias`       | `name`                                                                   | Custom alias for the URL. Alias can only contain numbers, letters and must has a length of 3 - 20. | `alias topSecret` |
+| `alias`       | `name`                                                                   | Also make a short link with this name (3 - 20 letters or numbers). See Short Links above.          | `alias topSecret` |
 | `password`    | `pwd`, `pw`                                                              | Encrypt the message with the provided password.                                                    | `pw test`         |
 | `expires`     | `expire`, `expiration`, `exp`,`remove`, `removes`, `destroy`, `destroys` | Followed by a condition. Message will be destroyed and removed after the condition is met.         | `expires 5 days`  |
 
@@ -141,7 +150,8 @@ git pull && docker compose up -d --build
 | `MAX_TTL_DAYS`        | `366`               | Maximum lifetime of a message.                                                                    |
 | `MAX_VIEWS`           | `10000`             | Maximum view limit a message can have (0 = unlimited is always allowed).                          |
 | `MAX_MESSAGE_KB`      | `512`               | Maximum size of an encrypted message.                                                             |
-| `MAX_FAILED_ATTEMPTS` | `10`                | Wrong passwords allowed before a message is destroyed.                                            |
+| `MAX_FAILED_ATTEMPTS` | `10`                | Failed opens (wrong password or link, unknown short link) one IP can make per 15 minutes.          |
+| `SHORT_LINK_MINUTES`  | `15`                | How long a short link works, unless it is used first.                                             |
 | `RATE_LIMIT_CREATE`   | `30`                | Messages one IP can create per 15 minutes.                                                        |
 | `RATE_LIMIT_OPEN`     | `60`                | Open attempts one IP can make per 15 minutes.                                                     |
 | `RATE_LIMIT_ACCOUNT`  | `600`               | Account API requests one IP can make per 15 minutes.                                              |
@@ -167,8 +177,9 @@ Accounts are created on first sign-in. Signed-in users find their messages under
 -   Each message gets a random 256-bit secret, which is put in the link's fragment (`/v/<id>#<secret>`). Browsers never send the fragment to the server.
 -   If a password is set, it is stretched with PBKDF2-SHA256 (600,000 iterations) using the secret as salt. Without the link, the password cannot be brute-forced, even with a copy of the database.
 -   Two independent keys are derived with HKDF: an AES-256-GCM key that encrypts the message in the browser, and an access token. The server only stores the ciphertext and the SHA-256 hash of the access token.
--   To open a message, the browser sends the access token. A wrong password or link is rejected without consuming a view, and too many failures destroy the message.
+-   To open a message, the browser sends the access token. A wrong password or link is rejected without consuming a view. Too many failures block that IP for a while; they never destroy the message, so knowing its id isn't enough to destroy it.
 -   Views are counted atomically in SQLite, and the last allowed view deletes the message in the same transaction. Deleted data is overwritten (`secure_delete`), and expired messages are purged every minute.
+-   Short links are the exception, and are opt-in: a short link stores the link secret (never the password) on the server until it is used, its 15 minutes run out, or the message burns. Resolving one is a `POST`, so link previews and scanners can't use it up.
 -   Accounts don't weaken this. Sign-in uses the OIDC authorization code flow with PKCE, and the session cookie is `HttpOnly` and `SameSite=Lax`. To let owners read their messages again, each one carries a copy of its link secret and password, encrypted in the browser with a vault key. The vault key is stored on the server only wrapped with the user's vault passphrase (PBKDF2-SHA256, 600,000 iterations), so the server can't read owned messages either. When an owned message burns, its ciphertext and key copy are wiped; only the bookkeeping (views, dates) stays in the owner's history.
 
 ## **Development**

@@ -23,8 +23,18 @@ class ApiError extends Error {
 	}
 }
 
-const generateId = () =>
-	Array.from({ length: GENERATED_ID_LENGTH }, () => ID_ALPHABET[randomInt(ID_ALPHABET.length)]).join("");
+// Short link codes are case-insensitive and stored lowercase. Generated ones skip look-alikes (0/o, 1/l/i).
+const CODE_PATTERN = /^[a-z0-9]{3,20}$/;
+const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+const GENERATED_CODE_LENGTH = 6;
+const SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+// Short links live at the site root, next to the client's own pages
+const RESERVED_CODES = new Set(["api", "auth", "create", "edit", "account"]);
+
+const randomString = (alphabet, length) =>
+	Array.from({ length }, () => alphabet[randomInt(alphabet.length)]).join("");
+
+const generateId = () => randomString(ID_ALPHABET, GENERATED_ID_LENGTH);
 
 const sha256Hex = (value) => createHash("sha256").update(value, "utf8").digest("hex");
 
@@ -73,7 +83,14 @@ const requireAuthHash = (authHash) => {
 	return authHash;
 };
 
-const requireExpiresIn = (expiresIn, config) => {
+const requireAuthToken = (authToken) => {
+	if (typeof authToken !== "string" || !BASE64URL_PATTERN.test(authToken) || authToken.length > 128) {
+		throw new ApiError(400, "invalid_request", "authToken must be a base64url string.");
+	}
+	return authToken;
+};
+
+const requireExpiresIn =(expiresIn, config) => {
 	if (!Number.isSafeInteger(expiresIn) || expiresIn < MIN_TTL_SECONDS || expiresIn > config.maxTtlSeconds) {
 		const maxTtlDays = Math.floor(config.maxTtlSeconds / 86400);
 		throw new ApiError(400, "invalid_expiration", `Messages must expire between 1 minute and ${maxTtlDays} days from now.`);
@@ -86,16 +103,51 @@ const requireJsonObject = (body) => {
 	return body;
 };
 
+/**
+ * A requested short link: { secret, code? }. The code is lowercased; without one, the
+ * caller generates a random one. Returns { code, secret, expiresAt }.
+ */
+function parseLinkRequest(body, config) {
+	requireJsonObject(body);
+
+	if (typeof body.secret !== "string" || !SECRET_PATTERN.test(body.secret)) {
+		throw new ApiError(400, "invalid_request", "secret must be the 43 character link secret.");
+	}
+
+	let code;
+	if (body.code !== undefined) {
+		code = typeof body.code === "string" ? body.code.toLowerCase() : "";
+		if (!CODE_PATTERN.test(code)) {
+			throw new ApiError(400, "invalid_alias", "Alias can only contain letters and numbers, and must be 3 - 20 characters long.");
+		}
+		if (RESERVED_CODES.has(code)) throw new ApiError(400, "invalid_alias", `"${code}" is reserved; pick another alias.`);
+	}
+
+	return { code, secret: body.secret, expiresAt: Date.now() + config.shortLinkMinutes * 60_000 };
+}
+
+const codeTaken = (code) =>
+	new ApiError(409, "already_exists", `The short link "${code}" is in use right now. Pick another alias, or wait for it to expire.`);
+
+/** Runs `insert` with the requested code, or with fresh random codes until one is free. */
+function withCode(link, insert) {
+	if (link.code) {
+		const result = insert(link);
+		if (result.status === "code_taken") throw codeTaken(link.code);
+		return result;
+	}
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const result = insert({ ...link, code: randomString(CODE_ALPHABET, GENERATED_CODE_LENGTH) });
+		if (result.status !== "code_taken") return result;
+	}
+	throw new Error("Unable to generate a unique short link.");
+}
+
 function parseCreateRequest(body, config) {
 	requireJsonObject(body);
 
-	const { alias } = body;
-	if (alias !== undefined && (typeof alias !== "string" || !ID_PATTERN.test(alias))) {
-		throw new ApiError(400, "invalid_alias", "Alias can only contain letters and numbers, and must be 3 - 20 characters long.");
-	}
-
 	return {
-		alias,
+		link: body.link === undefined ? undefined : parseLinkRequest(body.link, config),
 		ciphertext: requireCiphertext(body.ciphertext, config),
 		authHash: requireAuthHash(body.authHash),
 		expiresIn: requireExpiresIn(body.expiresIn, config),
@@ -183,7 +235,7 @@ export function createApp({ store, config }) {
 	});
 
 	api.post("/messages", limiter(config.createLimit), (req, res) => {
-		const input = parseCreateRequest(req.body, config);
+		const { link, ...input } = parseCreateRequest(req.body, config);
 		const createdAt = Date.now();
 		const message = {
 			...input,
@@ -193,19 +245,54 @@ export function createApp({ store, config }) {
 			ownerId: req.user?.id,
 		};
 
-		if (input.alias) {
-			if (!store.insert({ ...message, id: input.alias })) {
-				throw new ApiError(409, "already_exists", "A message with this alias already exists.");
-			}
-			return res.status(201).json({ id: input.alias });
-		}
-
 		// Collisions are astronomically unlikely with 62^10 ids, but retry anyway
-		for (let attempt = 0; attempt < 5; attempt++) {
-			const id = generateId();
-			if (store.insert({ ...message, id })) return res.status(201).json({ id });
+		const insert = (withLink) => {
+			for (let attempt = 0; attempt < 5; attempt++) {
+				const id = generateId();
+				const result = store.insert({ ...message, id }, withLink);
+				if (result.status !== "id_taken") return { ...result, id };
+			}
+			throw new Error("Unable to generate a unique message id.");
+		};
+
+		const result = link ? withCode(link, insert) : insert(undefined);
+		res.status(201).json({ id: result.id, ...(result.link && { link: result.link }) });
+	});
+
+	// Failed attempts block the client (by IP) for a while. Counting them per message
+	// instead would let anyone destroy or lock a message just by knowing its id.
+	const failureLimiter = rateLimit({
+		windowMs: 15 * 60 * 1000,
+		limit: config.maxFailedAttempts,
+		skipSuccessfulRequests: true,
+		standardHeaders: "draft-8",
+		legacyHeaders: false,
+		handler: (req, res) =>
+			res.status(429).json({
+				error: "Too many failed attempts from your network. Please try again in 15 minutes.",
+				type: "locked_out",
+			}),
+	});
+
+	api.post("/messages/:id/links", limiter(config.createLimit), failureLimiter, (req, res) => {
+		const id = requireId(req.params.id);
+		const authToken = requireAuthToken(req.body?.authToken);
+		const result = withCode(parseLinkRequest(req.body, config), (link) =>
+			store.addLink(id, link, { authHash: sha256Hex(authToken) })
+		);
+		if (result.status === "not_found") throw new ApiError(404, "not_found", "This message does not exist, or has expired.");
+		if (result.status === "unauthorized") throw new ApiError(403, "unauthorized", "Invalid password or link.");
+		res.status(201).json(result.link);
+	});
+
+	// A POST, so link previews and scanners that only fetch pages can't use up a short link
+	api.post("/links/:code", limiter(config.openLimit), failureLimiter, (req, res) => {
+		const code = String(req.params.code).toLowerCase();
+		const target = CODE_PATTERN.test(code) ? store.resolveLink(code) : undefined;
+		if (!target) {
+			throw new ApiError(404, "not_found", "This short link does not exist. It expired, was already used, or never existed.");
 		}
-		throw new Error("Unable to generate a unique message id.");
+		res.json(target);
 	});
 
 	api.get("/messages/:id", (req, res) => {
@@ -214,27 +301,16 @@ export function createApp({ store, config }) {
 		res.json(metadata);
 	});
 
-	api.post("/messages/:id/open", limiter(config.openLimit), (req, res) => {
+	api.post("/messages/:id/open", limiter(config.openLimit), failureLimiter, (req, res) => {
 		const id = requireId(req.params.id);
-		const authToken = req.body?.authToken;
-		if (typeof authToken !== "string" || !BASE64URL_PATTERN.test(authToken) || authToken.length > 128) {
-			throw new ApiError(400, "invalid_request", "authToken must be a base64url string.");
-		}
-
-		const result = store.open(id, sha256Hex(authToken), config.maxFailedAttempts);
+		const authToken = requireAuthToken(req.body?.authToken);
+		const result = store.open(id, sha256Hex(authToken));
 
 		switch (result.status) {
 			case "not_found":
 				throw new ApiError(404, "not_found", "This message does not exist, or has expired.");
 			case "unauthorized":
-				throw new ApiError(
-					403,
-					"unauthorized",
-					result.attemptsLeft > 0
-						? "Invalid password or link."
-						: "Too many failed attempts. This message has been destroyed.",
-					{ attemptsLeft: result.attemptsLeft }
-				);
+				throw new ApiError(403, "unauthorized", "Invalid password or link.");
 			default: {
 				const { status, ...message } = result;
 				res.json(message);
@@ -312,6 +388,32 @@ export function createApp({ store, config }) {
 			throw new ApiError(409, "burned", "This message does not exist or has already been destroyed.");
 		}
 		res.json(store.getOwned(req.user.id, id));
+	});
+
+	/* Short links. The owner's session stands in for the access token. */
+
+	account.post("/messages/:id/links", (req, res) => {
+		const id = requireId(req.params.id);
+		const result = withCode(parseLinkRequest(req.body, config), (link) =>
+			store.addLink(id, link, { ownerId: req.user.id })
+		);
+		if (result.status === "not_found") {
+			throw new ApiError(409, "burned", "This message does not exist or has already been destroyed.");
+		}
+		res.status(201).json(result.link);
+	});
+
+	account.delete("/messages/:id/links", (req, res) => {
+		if (store.revokeOwnedLinks(req.user.id, requireId(req.params.id)) === undefined) throw ownedNotFound();
+		res.status(204).end();
+	});
+
+	account.delete("/messages/:id/links/:code", (req, res) => {
+		const code = String(req.params.code).toLowerCase();
+		const removed = store.revokeOwnedLinks(req.user.id, requireId(req.params.id), code);
+		if (removed === undefined) throw ownedNotFound();
+		if (removed === 0) throw new ApiError(404, "not_found", "This short link has already expired or been used.");
+		res.status(204).end();
 	});
 
 	account.delete("/messages/:id", (req, res) => {

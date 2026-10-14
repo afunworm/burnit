@@ -2,13 +2,14 @@ import { Component, OnInit, inject, input, signal } from "@angular/core";
 import { DOCUMENT, UpperCasePipe } from "@angular/common";
 import { Router } from "@angular/router";
 import { AccountService, BurnReason, OwnedMessage } from "../../services/account.service";
-import { apiError, shareUrl } from "../../services/message.service";
+import { ShortLink, apiError, shareUrl, shortUrl } from "../../services/message.service";
 import { decrypt, deriveKeys, isCryptoAvailable } from "../../lib/crypto";
 import { formatDuration } from "../../lib/message-config";
 import { OwnerRecord } from "../../lib/vault";
+import { LinkCard } from "../../components/link-card";
 
 type Dialog = "none" | "detail" | "settings";
-type Confirming = "none" | "revoke" | "delete" | "reset-vault" | "delete-account";
+type Confirming = "none" | "revoke" | "delete" | "revoke-links" | "reset-vault" | "delete-account";
 
 interface Row extends OwnedMessage {
 	/** The decrypted owner record; null while locked, or when no key copy exists */
@@ -16,10 +17,12 @@ interface Row extends OwnedMessage {
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
+const ALIAS_PATTERN = /^[A-Za-z0-9]{3,20}$/;
 
 const STATUS: Record<BurnReason, { short: string; long: string }> = {
 	read: { short: "read", long: "destroyed after its last view" },
 	expired: { short: "expired", long: "destroyed when it expired" },
+	// Only on messages from before wrong attempts stopped destroying anything
 	attempts: { short: "wrong-pw", long: "destroyed after too many wrong passwords" },
 	revoked: { short: "revoked", long: "destroyed by you" },
 };
@@ -28,7 +31,7 @@ const dateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { date
 
 @Component({
 	selector: "app-account",
-	imports: [UpperCasePipe],
+	imports: [UpperCasePipe, LinkCard],
 	templateUrl: "./account.html",
 	styleUrl: "./account.css",
 	host: {
@@ -63,7 +66,7 @@ export class AccountPage implements OnInit {
 	protected readonly decrypting = signal(false);
 	protected readonly detailError = signal("");
 	protected readonly showPassword = signal(false);
-	protected readonly copied = signal(false);
+	protected readonly linkName = signal("");
 
 	// Settings
 	protected readonly currentPassphrase = signal("");
@@ -197,7 +200,7 @@ export class AccountPage implements OnInit {
 		this.content.set(null);
 		this.detailError.set("");
 		this.showPassword.set(false);
-		this.copied.set(false);
+		this.linkName.set("");
 		this.confirming.set("none");
 		this.dialog.set("detail");
 
@@ -209,7 +212,7 @@ export class AccountPage implements OnInit {
 			if (detail.ciphertext === null) return;
 			const keys = await deriveKeys(row.record.secret, row.record.password);
 			const content = await decrypt(keys.encryptionKey, detail.ciphertext);
-			if (this.selected() === row) this.content.set(content);
+			if (this.selected()?.id === row.id) this.content.set(content);
 		} catch (error) {
 			this.detailError.set(error instanceof Error ? "Could not decrypt this message." : apiError(error).error);
 		} finally {
@@ -221,20 +224,69 @@ export class AccountPage implements OnInit {
 		this.router.navigate(["/edit", row.id]);
 	}
 
-	protected async copyLink(row: Row): Promise<void> {
-		try {
-			await navigator.clipboard.writeText(this.link(row));
-			this.copied.set(true);
-		} catch {
-			// Clipboard access can be denied; the link is still selectable
-		}
+	/* ---------- Short links ---------- */
+
+	protected shortUrl(link: ShortLink): string {
+		return shortUrl(this.document.location.origin, link.code);
+	}
+
+	protected linkNote(link: ShortLink): string {
+		return `works once · expires in ${formatDuration(Date.parse(link.expiresAt) - Date.now())} (${dateTime(link.expiresAt)})`;
+	}
+
+	/** Adds a short link, named from the input or random */
+	protected async addLink(row: Row, event?: Event): Promise<void> {
+		event?.preventDefault();
+		const name = this.linkName().trim();
+		if (!row.record) return;
+		if (name && !ALIAS_PATTERN.test(name)) return this.detailError.set("Alias must be 3 - 20 letters or numbers.");
+
+		const secret = row.record.secret;
+		await this.runDetail(async () => {
+			const link = await this.account.addLink(row.id, secret, name || undefined);
+			this.setLinks(row.id, (links) => [...links, link]);
+			this.linkName.set("");
+		});
+	}
+
+	protected async revokeLink(row: Row, link: ShortLink): Promise<void> {
+		await this.runDetail(async () => {
+			try {
+				await this.account.revokeLinks(row.id, link.code);
+			} catch (error) {
+				// Already used or expired: either way it's gone
+				if (apiError(error).status !== 404) throw error;
+			}
+			this.setLinks(row.id, (links) => links.filter((l) => l.code !== link.code));
+		});
+	}
+
+	/** Invalidates every short link; with `replace`, then makes a fresh random one */
+	protected async revokeLinks(row: Row, replace = false): Promise<void> {
+		if (!replace && this.confirming() !== "revoke-links") return this.confirming.set("revoke-links");
+		const secret = row.record?.secret;
+		await this.runDetail(async () => {
+			await this.account.revokeLinks(row.id);
+			this.setLinks(row.id, () => []);
+			if (replace && secret) {
+				const link = await this.account.addLink(row.id, secret);
+				this.setLinks(row.id, () => [link]);
+			}
+		});
+	}
+
+	private setLinks(id: string, update: (links: ShortLink[]) => ShortLink[]): void {
+		const apply = (row: Row) => (row.id === id ? { ...row, links: update(row.links) } : row);
+		this.rows.update((rows) => rows.map(apply));
+		const selected = this.selected();
+		if (selected) this.selected.set(apply(selected));
 	}
 
 	/** Destructive actions take a second click instead of a browser confirm() */
 	protected async revoke(row: Row): Promise<void> {
 		if (this.confirming() !== "revoke") return this.confirming.set("revoke");
 		await this.runDetail(async () => {
-			const updated: Row = { ...(await this.account.revoke(row.id)), record: null };
+			const updated: Row = { ...(await this.account.revoke(row.id)), record: null, links: [] };
 			this.rows.update((rows) => rows.map((r) => (r.id === row.id ? updated : r)));
 			this.selected.set(updated);
 			this.content.set(null);

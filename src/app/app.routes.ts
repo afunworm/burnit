@@ -22,5 +22,14 @@ export const routes: Routes = [
 		title: "Burn It - Secret Message",
 		loadComponent: () => import("./pages/view/view").then((m) => m.ViewPage),
 	},
+	{
+		// Short links, e.g. /test. Fixed paths above win; anything else goes to the editor.
+		matcher: (segments) =>
+			segments.length === 1 && /^[A-Za-z0-9]{3,20}$/.test(segments[0].path)
+				? { consumed: segments, posParams: { code: segments[0] } }
+				: null,
+		title: "Burn It - Short Link",
+		loadComponent: () => import("./pages/short-link/short-link").then((m) => m.ShortLinkPage),
+	},
 	{ path: "**", redirectTo: "create" },
 ];

@@ -57,11 +57,6 @@ button.ls-row:focus-visible * {
 	text-underline-offset: 3px;
 }
 
-.link {
-	font-weight: 700;
-	word-break: break-all;
-}
-
 .content {
 	max-height: 50vh;
 	overflow-y: auto;

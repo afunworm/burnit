@@ -48,7 +48,16 @@ const SCHEMA = `
 		burn_reason     TEXT
 	) STRICT;
 
+	CREATE TABLE IF NOT EXISTS short_links (
+		code       TEXT    PRIMARY KEY,
+		message_id TEXT    NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+		secret     TEXT    NOT NULL,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
+	) STRICT;
+
 	CREATE INDEX IF NOT EXISTS messages_expires_at ON messages (expires_at);
+	CREATE INDEX IF NOT EXISTS short_links_message_id ON short_links (message_id);
 	CREATE INDEX IF NOT EXISTS messages_owner_id ON messages (owner_id, created_at);
 	CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions (user_id);
 `;
@@ -76,6 +85,10 @@ const hashesEqual = (a, b) => {
  * Messages without an owner are deleted the moment they burn. Messages that belong
  * to an account are reduced to a tombstone instead: the ciphertext, access hash and
  * the owner's key copy are wiped, and only the bookkeeping is kept for their history.
+ *
+ * Short links are the one place the server holds a message's link secret. Each one
+ * resolves once and only lives for a few minutes, and a message's short links are
+ * deleted with it when it burns.
  */
 export class Store {
 	#db;
@@ -105,6 +118,22 @@ export class Store {
 			`),
 			addView: prepare("UPDATE messages SET views = views + 1 WHERE id = ?"),
 			addFailure: prepare("UPDATE messages SET failed_attempts = failed_attempts + 1 WHERE id = ?"),
+
+			insertLink: prepare(`
+				INSERT INTO short_links (code, message_id, secret, created_at, expires_at)
+				VALUES (:code, :messageId, :secret, :createdAt, :expiresAt)
+			`),
+			findLink: prepare("SELECT * FROM short_links WHERE code = ? AND expires_at > ?"),
+			deleteLink: prepare("DELETE FROM short_links WHERE code = ?"),
+			deleteStaleLink: prepare("DELETE FROM short_links WHERE code = ? AND expires_at <= ?"),
+			deleteMessageLinks: prepare("DELETE FROM short_links WHERE message_id = ?"),
+			deleteMessageLink: prepare("DELETE FROM short_links WHERE message_id = ? AND code = ?"),
+			listOwnedLinks: prepare(`
+				SELECT short_links.* FROM short_links JOIN messages ON messages.id = short_links.message_id
+				WHERE messages.owner_id = ? AND short_links.expires_at > ?
+				ORDER BY short_links.created_at, short_links.code
+			`),
+			purgeLinks: prepare("DELETE FROM short_links WHERE expires_at <= ?"),
 			update: prepare(`
 				UPDATE messages SET
 					ciphertext = :ciphertext, auth_hash = :authHash, use_password = :usePassword, nocopy = :nocopy,
@@ -154,8 +183,22 @@ export class Store {
 
 	/* ---------- Messages (public) ---------- */
 
-	/** Returns false if the id is already taken. */
-	insert(message) {
+	/**
+	 * Stores a message, and optionally its first short link in the same transaction.
+	 * Returns { status: "ok", link? } | { status: "id_taken" | "code_taken" }.
+	 */
+	insert(message, link) {
+		return this.#transaction(() => {
+			if (link && !this.#codeFree(link.code, message.createdAt)) return { status: "code_taken" };
+			if (!this.#insertMessage(message)) return { status: "id_taken" };
+			return {
+				status: "ok",
+				link: link && this.#insertLink(message.id, link, message.expiresAt, message.createdAt),
+			};
+		});
+	}
+
+	#insertMessage(message) {
 		const result = this.#statements.insert.run({
 			id: message.id,
 			ciphertext: message.ciphertext,
@@ -182,20 +225,19 @@ export class Store {
 	/**
 	 * Verifies the access token hash and consumes one view.
 	 * The message is destroyed in the same transaction that serves its last view.
+	 *
+	 * Wrong tokens are only counted, so the owner can see them. They never destroy the
+	 * message, or anyone who knows an id could destroy it on purpose; guessing is held
+	 * back by blocking the guesser instead (the failure limiter in app.js).
 	 */
-	open(id, authHash, maxFailedAttempts, now = Date.now()) {
+	open(id, authHash, now = Date.now()) {
 		return this.#transaction(() => {
 			const row = this.#findLive(id, now);
 			if (!row) return { status: "not_found" };
 
 			if (!hashesEqual(row.auth_hash, authHash)) {
-				const failedAttempts = row.failed_attempts + 1;
-				const attemptsLeft = Math.max(maxFailedAttempts - failedAttempts, 0);
-
-				if (attemptsLeft === 0) this.#destroy(row, "attempts", now);
-				else this.#statements.addFailure.run(id);
-
-				return { status: "unauthorized", attemptsLeft };
+				this.#statements.addFailure.run(id);
+				return { status: "unauthorized" };
 			}
 
 			const views = row.views + 1;
@@ -213,6 +255,53 @@ export class Store {
 		});
 	}
 
+	/* ---------- Short links ---------- */
+
+	/**
+	 * Adds a short link to a live message; it never outlives the message.
+	 * `authHash` proves the caller holds the message's key. Owners pass `ownerId` instead.
+	 * Returns { status: "ok", link } | { status: "not_found" | "unauthorized" | "code_taken" }.
+	 */
+	addLink(id, link, { authHash, ownerId, now = Date.now() }) {
+		return this.#transaction(() => {
+			const row = this.#findLive(id, now);
+			if (!row || (ownerId !== undefined && row.owner_id !== ownerId)) return { status: "not_found" };
+			if (ownerId === undefined && !hashesEqual(row.auth_hash, authHash)) {
+				this.#statements.addFailure.run(id);
+				return { status: "unauthorized" };
+			}
+			if (!this.#codeFree(link.code, now)) return { status: "code_taken" };
+
+			return { status: "ok", link: this.#insertLink(id, link, row.expires_at, now) };
+		});
+	}
+
+	/** Returns the message id and secret behind a short link, and deletes the link: each one works once. */
+	resolveLink(code, now = Date.now()) {
+		return this.#transaction(() => {
+			const link = this.#statements.findLink.get(code, now);
+			if (!link) return undefined;
+
+			this.#statements.deleteLink.run(code);
+			return this.#findLive(link.message_id, now) && { id: link.message_id, secret: link.secret };
+		});
+	}
+
+	/**
+	 * Invalidates one short link of an owned message, or all of them when `code` is omitted.
+	 * Returns the number removed, or undefined if the message isn't the user's.
+	 */
+	revokeOwnedLinks(userId, id, code) {
+		return this.#transaction(() => {
+			if (!this.#statements.findOwned.get(id, userId)) return undefined;
+			const result =
+				code === undefined
+					? this.#statements.deleteMessageLinks.run(id)
+					: this.#statements.deleteMessageLink.run(id, code);
+			return Number(result.changes);
+		});
+	}
+
 	/**
 	 * Deletes expired anonymous messages, turns expired owned ones into tombstones,
 	 * and drops tombstones, sessions and login attempts that are past their retention.
@@ -222,6 +311,7 @@ export class Store {
 		return this.#transaction(() => {
 			const removed =
 				Number(this.#statements.purgeUnowned.run(now).changes) + Number(this.#statements.expireOwned.run(now).changes);
+			this.#statements.purgeLinks.run(now);
 			this.#statements.purgeHistory.run(now - historyMs);
 			this.#statements.purgeSessions.run(now);
 			this.#statements.purgeLoginStates.run(now);
@@ -234,7 +324,8 @@ export class Store {
 	listOwned(userId, now = Date.now()) {
 		return this.#transaction(() => {
 			this.#statements.expireOwned.run(now);
-			return this.#statements.listOwned.all(userId).map(toOwned);
+			const links = Map.groupBy(this.#statements.listOwnedLinks.all(userId, now), (link) => link.message_id);
+			return this.#statements.listOwned.all(userId).map((row) => toOwned(row, links.get(row.id)));
 		});
 	}
 
@@ -242,7 +333,11 @@ export class Store {
 	getOwned(userId, id, now = Date.now()) {
 		return this.#transaction(() => {
 			const row = this.#findOwned(userId, id, now);
-			return row && { ...toOwned(row), ciphertext: row.burned_at === null ? row.ciphertext : null };
+			if (!row) return undefined;
+			return {
+				...toOwned(row, this.#ownedLinks(userId, id, now)),
+				ciphertext: row.burned_at === null ? row.ciphertext : null,
+			};
 		});
 	}
 
@@ -273,7 +368,7 @@ export class Store {
 				failedAttempts: authHash === row.auth_hash ? row.failed_attempts : 0,
 			});
 
-			return { status: "ok", message: toOwned(this.#statements.find.get(id)) };
+			return { status: "ok", message: toOwned(this.#statements.find.get(id), this.#ownedLinks(userId, id, now)) };
 		});
 	}
 
@@ -380,7 +475,25 @@ export class Store {
 		return this.#findLive(id, now) ?? this.#statements.findOwned.get(id, userId);
 	}
 
+	/** Whether a short link code is available. A link that expired but wasn't purged yet frees its code. */
+	#codeFree(code, now) {
+		this.#statements.deleteStaleLink.run(code, now);
+		return !this.#statements.findLink.get(code, now);
+	}
+
+	#insertLink(messageId, { code, secret, expiresAt }, messageExpiresAt, now) {
+		const link = { code, created_at: now, expires_at: Math.min(expiresAt, messageExpiresAt) };
+		this.#statements.insertLink.run({ code, messageId, secret, createdAt: now, expiresAt: link.expires_at });
+		return toLink(link);
+	}
+
+	#ownedLinks(userId, id, now) {
+		return this.#statements.listOwnedLinks.all(userId, now).filter((link) => link.message_id === id);
+	}
+
 	#destroy(row, reason, now) {
+		// Short links hold the secret; they never outlive the message
+		this.#statements.deleteMessageLinks.run(row.id);
 		if (row.owner_id === null) this.#statements.delete.run(row.id);
 		else this.#statements.tombstone.run({ id: row.id, reason, now });
 	}
@@ -414,7 +527,14 @@ const toMetadata = (row) => ({
 	expiresAt: iso(row.expires_at),
 });
 
-const toOwned = (row) => ({
+const toLink = (row) => ({
+	code: row.code,
+	createdAt: iso(row.created_at),
+	expiresAt: iso(row.expires_at),
+});
+
+/** `links` are the message's live short links (database rows), without their secrets. */
+const toOwned = (row, links = []) => ({
 	id: row.id,
 	...toMetadata(row),
 	failedAttempts: row.failed_attempts,
@@ -422,6 +542,7 @@ const toOwned = (row) => ({
 	ownerBlob: row.owner_blob,
 	burnedAt: row.burned_at === null ? null : iso(row.burned_at),
 	burnReason: row.burn_reason,
+	links: links.map(toLink),
 });
 
 const toUser = (row) => ({

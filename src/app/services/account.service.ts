@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
 import { firstValueFrom } from "rxjs";
-import { MessageMetadata } from "./message.service";
+import { MessageMetadata, ShortLink } from "./message.service";
 import {
 	OwnerRecord,
 	WrappedVault,
@@ -37,6 +37,8 @@ export interface OwnedMessage extends MessageMetadata {
 	ownerBlob: string | null;
 	burnedAt: string | null;
 	burnReason: BurnReason | null;
+	/** Live short links, oldest first */
+	links: ShortLink[];
 }
 
 export interface OwnedMessageDetail extends OwnedMessage {
@@ -177,6 +179,17 @@ export class AccountService {
 
 	remove(id: string): Promise<unknown> {
 		return firstValueFrom(this.http.delete(this.messageUrl(id)));
+	}
+
+	/** Adds a short link; without a code, the server picks a random one. */
+	addLink(id: string, secret: string, code?: string): Promise<ShortLink> {
+		return firstValueFrom(this.http.post<ShortLink>(`${this.messageUrl(id)}/links`, { secret, code }));
+	}
+
+	/** Invalidates one short link, or every one of the message's when `code` is omitted. */
+	revokeLinks(id: string, code?: string): Promise<unknown> {
+		const url = `${this.messageUrl(id)}/links`;
+		return firstValueFrom(this.http.delete(code ? `${url}/${encodeURIComponent(code)}` : url));
 	}
 
 	private messageUrl(id: string): string {

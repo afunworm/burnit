@@ -101,7 +101,8 @@ before(async () => {
 			maxTtlSeconds: 366 * 86400,
 			maxViews: 10000,
 			maxMessageBytes: 1024,
-			maxFailedAttempts: 3,
+			maxFailedAttempts: 1000,
+			shortLinkMinutes: 15,
 			createLimit: 1000,
 			openLimit: 1000,
 			accountLimit: 1000,
@@ -300,7 +301,7 @@ describe("owned messages", () => {
 
 	test("expired owned messages become tombstones, then age out", async () => {
 		const cookie = await login("heidi");
-		const { body: created } = await createMessage(cookie, { alias: "ownedExpiring" });
+		const { body: created } = await createMessage(cookie);
 		const later = Date.now() + 3601 * 1000;
 		store.purgeExpired(later, 86_400_000);
 
@@ -308,6 +309,57 @@ describe("owned messages", () => {
 		assert.equal(body.burnReason, "expired");
 		store.purgeExpired(later + 86_400_001, 86_400_000);
 		assert.equal((await request("GET", `/api/account/messages/${created.id}`, { cookie })).status, 404);
+	});
+});
+
+describe("short links of owned messages", () => {
+	const secret = () => randomBytes(32).toString("base64url");
+	const resolve = (code) => request("POST", `/api/links/${code}`);
+
+	test("owners add, list and invalidate short links without the access token", async () => {
+		const cookie = await login("kim");
+		const { body: created } = await createMessage(cookie);
+		const linkUrl = `/api/account/messages/${created.id}/links`;
+		const s = secret();
+
+		const named = await request("POST", linkUrl, { cookie, body: { secret: s, code: "KimsLink" } });
+		assert.equal(named.status, 201);
+		assert.equal(named.body.code, "kimslink");
+		const random = await request("POST", linkUrl, { cookie, body: { secret: s } });
+		assert.match(random.body.code, /^[a-z0-9]{6}$/);
+
+		const { body: listed } = await request("GET", "/api/account/messages", { cookie });
+		assert.deepEqual(
+			listed[0].links.map((link) => link.code).sort(),
+			[named.body.code, random.body.code].sort()
+		);
+		assert.equal(listed[0].links[0].secret, undefined);
+
+		assert.equal((await request("DELETE", `${linkUrl}/kimslink`, { cookie })).status, 204);
+		assert.equal((await resolve("kimslink")).status, 404);
+		assert.equal((await request("DELETE", linkUrl, { cookie })).status, 204);
+		assert.equal((await resolve(random.body.code)).status, 404);
+		assert.deepEqual((await request("GET", `/api/account/messages/${created.id}`, { cookie })).body.links, []);
+	});
+
+	test("other accounts cannot add or invalidate short links", async () => {
+		const owner = await login("leo");
+		const { body: created } = await createMessage(owner);
+		const linkUrl = `/api/account/messages/${created.id}/links`;
+		const added = await request("POST", linkUrl, { cookie: owner, body: { secret: secret() } });
+
+		const intruder = await login("mallory");
+		assert.equal((await request("POST", linkUrl, { cookie: intruder, body: { secret: secret() } })).status, 409);
+		assert.equal((await request("DELETE", linkUrl, { cookie: intruder })).status, 404);
+		assert.equal((await resolve(added.body.code)).status, 200);
+	});
+
+	test("short links die with their message", async () => {
+		const cookie = await login("mia");
+		const { body: created } = await createMessage(cookie);
+		const added = await request("POST", `/api/account/messages/${created.id}/links`, { cookie, body: { secret: secret() } });
+		await request("POST", `/api/account/messages/${created.id}/revoke`, { cookie });
+		assert.equal((await resolve(added.body.code)).status, 404);
 	});
 });
 

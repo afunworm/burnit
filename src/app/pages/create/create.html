@@ -46,8 +46,8 @@
 		<button type="button" class="stat" title="Change when it expires" (click)="openOptions('time')">ttl:{{ p.summary.expires }}</button>
 		<button type="button" class="stat" title="Set a password" (click)="openOptions('password')">pw:{{ p.summary.password ? "on" : "off" }}</button>
 		<button type="button" class="stat" title="Make it harder to copy" (click)="openOptions('nocopy')">nocopy:{{ p.summary.nocopy ? "on" : "off" }}</button>
+		<button type="button" class="stat" title="Name a short link, easy to type on another device" (click)="openOptions('alias')">alias:{{ p.summary.alias }}</button>
 		@if (!id()) {
-			<button type="button" class="stat" title="Choose a custom link name" (click)="openOptions('alias')">alias:{{ p.summary.alias }}</button>
 			@switch (account.vaultState()) {
 				@case ("unlocked") {
 					<span title="Saved to your account, with a key copy in your vault">acct:on</span>
@@ -107,7 +107,11 @@ your secret message</div>
 						<dt>password &lt;text&gt;</dt>
 						<dd>Require a password to decrypt. Aliases: <code>pw</code>, <code>pwd</code>.</dd>
 						<dt>alias &lt;name&gt;</dt>
-						<dd>Custom link name, 3 - 20 letters or numbers. Alias: <code>name</code>.</dd>
+						<dd>
+							Also make a short link with this name, 3 - 20 letters or numbers, e.g. <code>alias test</code> for
+							<code>/test</code>. It is easy to type on another device, but <span class="hl">works once, for 15 minutes</span>,
+							and until then the server holds the key. A password still protects the message. Alias: <code>name</code>.
+						</dd>
 						<dt>nocopy</dt>
 						<dd>Make the message harder to copy. Aliases: <code>obfuscate</code>.</dd>
 					</dl>
@@ -231,15 +235,13 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 						</div>
 					</div>
 
-					@if (!id()) {
-						<div class="opt">
-							<label for="opt-alias" class="opt-label">alias</label>
-							<div class="opt-choices">
-								<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="random" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
-								<span class="dim">3 - 20 letters or numbers</span>
-							</div>
+					<div class="opt">
+						<label for="opt-alias" class="opt-label">alias</label>
+						<div class="opt-choices">
+							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="none" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
+							<span class="dim">short link name, works once for 15 min</span>
 						</div>
-					}
+					</div>
 
 					@if (parsed().errorCount > 0) {
 						<p class="err mt-3">ERR: the config has {{ parsed().errorCount }} problem(s); check the lines at the top of your message.</p>
@@ -283,17 +285,29 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 							<dt>nocopy</dt>
 							<dd><span [class.bright]="s.nocopy">{{ s.nocopy ? "on" : "off" }}</span></dd>
 							<dt>id</dt>
-							<dd><span class="bright">{{ createdId() }}</span>{{ s.alias === "random" ? " (random)" : " (alias)" }}</dd>
+							<dd><span class="bright">{{ createdId() }}</span></dd>
 						</dl>
 					}
 
-					<div class="code-block link select-all">{{ shareUrl() }}</div>
-
-					<div class="flex flex-wrap gap-2">
-						<button type="button" class="btn" (click)="copyLink()">{{ copied() ? "COPIED" : "COPY LINK" }}</button>
+					<p class="mt-3">&gt; link <span class="dim">(end-to-end: the key stays in the part after #)</span></p>
+					<app-link-card [url]="shareUrl()">
 						@if (canShare) {
 							<button type="button" class="btn" (click)="shareLink()">SHARE</button>
 						}
+					</app-link-card>
+
+					<p class="mt-4">&gt; short link <span class="dim">(easy to type; the server holds the key until it's used)</span></p>
+					@for (link of shortLinks(); track link.code) {
+						<app-link-card class="mb-3" [url]="shortUrl(link)" [note]="linkNote(link)" />
+					}
+					@if (linkError()) {
+						<p class="err" role="alert">ERR: {{ linkError() }}</p>
+					}
+					<button type="button" class="btn" [disabled]="addingLink()" (click)="addShortLink()">
+						{{ addingLink() ? "CREATING ..." : shortLinks().length ? "ANOTHER SHORT LINK" : "MAKE SHORT LINK" }}
+					</button>
+
+					<div class="mt-4 flex flex-wrap gap-2">
 						<button type="button" class="btn" (click)="closeDialog()">{{ id() ? "BACK TO ACCOUNT" : "NEW MESSAGE" }}</button>
 					</div>
 

@@ -116,13 +116,14 @@ export class ViewPage implements OnInit {
 			// The key is useless once the message is gone; don't leave it in the address bar or history
 			if (burned) history.replaceState(history.state, "", this.document.location.pathname);
 		} catch (error) {
-			const { status, attemptsLeft } = apiError(error);
-			if (status === 403 && attemptsLeft) {
-				this.passwordError.set(
-					`${this.metadata()?.usePassword ? "Invalid password" : "Invalid link"}. ${attemptsLeft} attempt(s) left before the message is destroyed.`
+			const { status, error: message } = apiError(error);
+			if (status === 403) {
+				return this.passwordError.set(
+					this.metadata()?.usePassword ? "Invalid password." : "Invalid link. Make sure you copied the entire link."
 				);
-				return;
 			}
+			// Too many failed attempts: this client is blocked for a while, the message is untouched
+			if (status === 429) return this.passwordError.set(message);
 			this.fail(error);
 		} finally {
 			this.opening.set(false);

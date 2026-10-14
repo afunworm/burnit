@@ -35,7 +35,10 @@ export function loadConfig() {
 		maxTtlSeconds: int("MAX_TTL_DAYS", 366) * 24 * 60 * 60,
 		maxViews: int("MAX_VIEWS", 10000),
 		maxMessageBytes: int("MAX_MESSAGE_KB", 512) * 1024,
+		// Failed opens (wrong key or password, unknown short link) one IP can make per 15 minutes
 		maxFailedAttempts: int("MAX_FAILED_ATTEMPTS", 10),
+		// How long a short link works, unless it is used (or its message burns) first
+		shortLinkMinutes: int("SHORT_LINK_MINUTES", 15),
 
 		// Per-IP rate limits, per 15 minutes
 		createLimit: int("RATE_LIMIT_CREATE", 30),

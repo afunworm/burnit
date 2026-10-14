@@ -152,11 +152,6 @@
 	max-width: 40%;
 }
 
-.link {
-	font-weight: 700;
-	word-break: break-all;
-}
-
 @media (max-width: 640px) {
 	.opt {
 		grid-template-columns: 1fr;

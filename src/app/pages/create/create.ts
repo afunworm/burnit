@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnInit, computed, inject, input, signal, viewChild } from "@angular/core";
 import { DOCUMENT } from "@angular/common";
 import { Router, RouterLink } from "@angular/router";
-import { MessageService, apiError, shareUrl } from "../../services/message.service";
+import { MessageService, ShortLink, apiError, shareUrl, shortUrl } from "../../services/message.service";
 import { AccountService, UpdateMessageRequest } from "../../services/account.service";
 import {
 	ConfigValues,
@@ -26,6 +26,7 @@ import {
 	isCryptoAvailable,
 } from "../../lib/crypto";
 import { OwnerRecord, previewOf } from "../../lib/vault";
+import { LinkCard } from "../../components/link-card";
 
 type Dialog = "none" | "help" | "complete" | "options";
 type OptionField = "views" | "time" | "password" | "nocopy" | "alias";
@@ -80,7 +81,7 @@ const summarize = (options: MessageOptions, now: Date): Summary => ({
 	expires: formatDuration(options.expiresAt.getTime() - now.getTime()),
 	password: options.password !== "",
 	nocopy: options.nocopy,
-	alias: options.alias ?? "random",
+	alias: options.alias ?? "none",
 	expiresAt: options.expiresAt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
 });
 
@@ -88,7 +89,7 @@ const secondsUntil = (date: Date, now: Date) => Math.round((date.getTime() - now
 
 @Component({
 	selector: "app-create",
-	imports: [RouterLink],
+	imports: [RouterLink, LinkCard],
 	templateUrl: "./create.html",
 	styleUrl: "./create.css",
 	host: {
@@ -116,7 +117,12 @@ export class CreatePage implements OnInit {
 	/** Whether the last save went to the account, and with a key copy */
 	protected readonly savedToAccount = signal<"no" | "with-key" | "without-key">("no");
 	protected readonly passwordChanged = signal(false);
-	protected readonly copied = signal(false);
+	/** Short links made in the "complete" dialog, newest last */
+	protected readonly shortLinks = signal<ShortLink[]>([]);
+	protected readonly linkError = signal("");
+	protected readonly addingLink = signal(false);
+	/** What the "complete" dialog needs to add short links to the message it just saved */
+	private linkTarget: { id: string; secret: string; authToken: string } | null = null;
 	protected readonly editing = signal<Editing | null>(null);
 	protected readonly cryptoAvailable = isCryptoAvailable();
 	protected readonly canShare = typeof navigator !== "undefined" && "share" in navigator;
@@ -275,7 +281,6 @@ export class CreatePage implements OnInit {
 		const now = new Date();
 		const { options, errors } = parseMessage(this.message(), now, this.defaults());
 		if (options.content.trim() === "") errors.push("Message cannot be blank.");
-		if (this.editing() && options.alias) errors.push("The link of an existing message can't change; remove the alias line.");
 		this.errors.set(errors);
 		if (errors.length > 0) return;
 
@@ -286,21 +291,11 @@ export class CreatePage implements OnInit {
 			else await this.create(options, now);
 
 			this.shared.set(summarize(options, now));
-			this.copied.set(false);
 			this.dialog.set("complete");
 		} catch (error) {
 			this.errors.set([error instanceof Error ? error.message : apiError(error).error]);
 		} finally {
 			this.submitting.set(false);
-		}
-	}
-
-	protected async copyLink(): Promise<void> {
-		try {
-			await navigator.clipboard.writeText(this.shareUrl());
-			this.copied.set(true);
-		} catch {
-			// Clipboard access can be denied; the link is still selectable
 		}
 	}
 
@@ -312,6 +307,41 @@ export class CreatePage implements OnInit {
 		}
 	}
 
+	protected shortUrl(link: ShortLink): string {
+		return shortUrl(this.document.location.origin, link.code);
+	}
+
+	protected linkNote(link: ShortLink): string {
+		const left = formatDuration(Date.parse(link.expiresAt) - Date.now());
+		const at = new Date(link.expiresAt).toLocaleTimeString(undefined, { timeStyle: "short" });
+		return `works once, for ${left} (until ${at})`;
+	}
+
+	/** Adds a random short link to the message that was just saved */
+	protected async addShortLink(): Promise<void> {
+		const target = this.linkTarget;
+		if (!target || this.addingLink()) return;
+		this.addingLink.set(true);
+		this.linkError.set("");
+		try {
+			const link = await this.messages.addLink(target.id, target.authToken, { secret: target.secret });
+			this.shortLinks.update((links) => [...links, link]);
+		} catch (error) {
+			this.linkError.set(apiError(error).error);
+		} finally {
+			this.addingLink.set(false);
+		}
+	}
+
+	/** Prepares the "complete" dialog for a freshly saved message */
+	private saved(id: string, secret: string, authToken: string, links: ShortLink[]): void {
+		this.shareUrl.set(shareUrl(this.document.location.origin, id, secret));
+		this.createdId.set(id);
+		this.linkTarget = { id, secret, authToken };
+		this.shortLinks.set(links);
+		this.linkError.set("");
+	}
+
 	private async create(options: MessageOptions, now: Date): Promise<void> {
 		const secret = generateSecret();
 		const keys = await deriveKeys(secret, options.password);
@@ -320,8 +350,7 @@ export class CreatePage implements OnInit {
 			? await this.account.seal({ secret, password: options.password, preview: previewOf(options.content) })
 			: undefined;
 
-		const { id } = await this.messages.create({
-			alias: options.alias,
+		const { id, link } = await this.messages.create({
 			ciphertext: await encrypt(keys.encryptionKey, options.content),
 			authHash: await hashAuthToken(keys.authToken),
 			usePassword: options.password !== "",
@@ -329,10 +358,10 @@ export class CreatePage implements OnInit {
 			maxViews: options.maxViews,
 			expiresIn: secondsUntil(options.expiresAt, now),
 			ownerBlob,
+			link: options.alias ? { secret, code: options.alias } : undefined,
 		});
 
-		this.shareUrl.set(shareUrl(this.document.location.origin, id, secret));
-		this.createdId.set(id);
+		this.saved(id, secret, keys.authToken, link ? [link] : []);
 		this.savedToAccount.set(!signedIn ? "no" : ownerBlob ? "with-key" : "without-key");
 		this.message.set("");
 	}
@@ -360,9 +389,18 @@ export class CreatePage implements OnInit {
 
 		const updated = await this.account.update(editing.id, changes);
 		this.editing.set({ ...editing, record, keys, expiresAt: new Date(updated.expiresAt) });
-		this.shareUrl.set(shareUrl(this.document.location.origin, editing.id, record.secret));
-		this.createdId.set(editing.id);
+		this.saved(editing.id, record.secret, keys.authToken, []);
 		this.passwordChanged.set(passwordChanged);
+
+		// The message is saved either way; a name that's taken only costs the short link
+		if (options.alias) {
+			try {
+				const link = await this.messages.addLink(editing.id, keys.authToken, { secret: record.secret, code: options.alias });
+				this.shortLinks.set([link]);
+			} catch (error) {
+				this.linkError.set(apiError(error).error);
+			}
+		}
 	}
 
 	private async loadForEditing(id: string): Promise<void> {

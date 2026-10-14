@@ -160,13 +160,15 @@
 							<dd>{{ row.nocopy ? "on" : "off" }}</dd>
 							@if (row.failedAttempts > 0 && !row.burnedAt) {
 								<dt>failed</dt>
-								<dd class="warn">{{ row.failedAttempts }} wrong password attempt(s)</dd>
+								<dd class="warn">{{ row.failedAttempts }} attempt(s) with a wrong password or link</dd>
 							}
 						</dl>
 
 						@if (!row.burnedAt) {
 							@if (row.record) {
-								<div class="code-block link select-all">{{ link(row) }}</div>
+								<app-link-card class="mt-3" [url]="link(row)">
+									<button type="button" class="btn" (click)="edit(row)">EDIT</button>
+								</app-link-card>
 								@if (decrypting()) {
 									<p class="cursor">&gt; decrypting ...</p>
 								} @else if (content() !== null) {
@@ -182,15 +184,48 @@
 							<p class="dim mt-3">&gt; the content was destroyed with the message</p>
 						}
 
+						@if (!row.burnedAt) {
+							<h2>SHORT LINKS <span class="dim font-normal">({{ row.links.length }} live)</span></h2>
+							<p class="dim">
+								Easy to type on another device. Each works once, for a few minutes, and until then the
+								server holds the key.{{ row.usePassword ? " The password is still needed." : "" }}
+							</p>
+							@for (link of row.links; track link.code) {
+								<app-link-card class="mt-3" [url]="shortUrl(link)" [note]="linkNote(link)">
+									<button type="button" class="btn" [disabled]="busy()" (click)="revokeLink(row, link)">INVALIDATE</button>
+								</app-link-card>
+							}
+							@if (row.record) {
+								<form class="mt-3" (submit)="addLink(row, $event)">
+									<label class="prompt-line">
+										<span class="flex-none">alias:</span>
+										<input #alias type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="random" class="min-w-0 flex-1" [value]="linkName()" (input)="linkName.set(alias.value)" />
+									</label>
+								</form>
+							} @else {
+								<p class="warn mt-3">&gt; unlock your vault to make short links</p>
+							}
+							<div class="mt-3 flex flex-wrap gap-2">
+								@if (row.record) {
+									<button type="button" class="btn" [disabled]="busy()" (click)="addLink(row)">NEW SHORT LINK</button>
+									@if (row.links.length > 0) {
+										<button type="button" class="btn" [disabled]="busy()" (click)="revokeLinks(row, true)">REGENERATE</button>
+									}
+								}
+								@if (row.links.length > 0) {
+									<button type="button" class="btn" [class.danger]="confirming() === 'revoke-links'" [disabled]="busy()" (click)="revokeLinks(row)">
+										{{ confirming() === "revoke-links" ? "CONFIRM: INVALIDATE ALL" : "INVALIDATE ALL" }}
+									</button>
+								}
+							</div>
+						}
+
 						@if (detailError()) {
 							<p class="err mt-2" role="alert">ERR: {{ detailError() }}</p>
 						}
 
-						<div class="mt-4 flex flex-wrap gap-2">
-							@if (!row.burnedAt && row.record) {
-								<button type="button" class="btn" (click)="copyLink(row)">{{ copied() ? "COPIED" : "COPY LINK" }}</button>
-								<button type="button" class="btn" (click)="edit(row)">EDIT</button>
-							}
+						<h2>MESSAGE</h2>
+						<div class="mt-2 flex flex-wrap gap-2">
 							@if (!row.burnedAt) {
 								<button type="button" class="btn" [class.danger]="confirming() === 'revoke'" [disabled]="busy()" (click)="revoke(row)">
 									{{ confirming() === "revoke" ? "CONFIRM: DESTROY NOW" : "DESTROY NOW" }}

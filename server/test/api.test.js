@@ -10,7 +10,8 @@ const config = {
 	maxTtlSeconds: 366 * 86400,
 	maxViews: 10000,
 	maxMessageBytes: 1024,
-	maxFailedAttempts: 3,
+	maxFailedAttempts: 1000,
+	shortLinkMinutes: 15,
 	createLimit: 1000,
 	openLimit: 1000,
 	accountLimit: 1000,
@@ -68,18 +69,11 @@ describe("creating messages", () => {
 		assert.match(body.id, /^[A-Za-z0-9]{10}$/);
 	});
 
-	test("rejects duplicate aliases", async () => {
-		assert.equal((await create({ alias: "dupe" })).status, 201);
-		const { status, body } = await create({ alias: "dupe" });
-		assert.equal(status, 409);
-		assert.equal(body.type, "already_exists");
+	test("ignores the retired message alias; ids are always random", async () => {
+		const { status, body } = await create({ alias: "retired" });
+		assert.equal(status, 201);
+		assert.match(body.id, /^[A-Za-z0-9]{10}$/);
 	});
-
-	for (const alias of ["ab", "has/slash", "a".repeat(21), "with space", "x%2Fy", 42]) {
-		test(`rejects alias ${JSON.stringify(alias)}`, async () => {
-			assert.equal((await create({ alias })).status, 400);
-		});
-	}
 
 	for (const [field, value] of [
 		["maxViews", -1],
@@ -153,17 +147,11 @@ describe("reading messages", () => {
 		assert.equal(results.filter((result) => result.status === 200).length, 1);
 	});
 
-	test("a wrong token does not consume a view, and too many destroy the message", async () => {
+	test("wrong tokens neither consume a view nor destroy the message", async () => {
 		const { body: created, authToken } = await create();
-		let result = await open(created.id, token());
-		assert.equal(result.status, 403);
-		assert.equal(result.body.attemptsLeft, 2);
+		for (let i = 0; i < 20; i++) assert.equal((await open(created.id, token())).status, 403);
 		assert.equal((await request("GET", `/messages/${created.id}`)).body.views, 0);
-
-		await open(created.id, token());
-		result = await open(created.id, token());
-		assert.equal(result.body.attemptsLeft, 0);
-		assert.equal((await open(created.id, authToken)).status, 404);
+		assert.equal((await open(created.id, authToken)).status, 200);
 	});
 
 	test("ids cannot address fields inside a message", async () => {
@@ -174,14 +162,108 @@ describe("reading messages", () => {
 	});
 
 	test("expired messages are rejected and purged", async () => {
-		const { body: created, authToken } = await create({ alias: "expiring" });
+		const { body: created, authToken } = await create();
 		const later = Date.now() + 3601 * 1000;
 		assert.equal(store.getMetadata(created.id, later), undefined);
 		assert.equal((await open(created.id, authToken)).status, 404);
 
-		await create({ alias: "purged" });
+		const { body: purged } = await create();
 		assert.ok(store.purgeExpired(later) >= 1);
-		assert.equal(store.getMetadata("purged"), undefined);
+		assert.equal(store.getMetadata(purged.id), undefined);
+	});
+});
+
+describe("short links", () => {
+	const secret = () => randomBytes(32).toString("base64url");
+	const resolve = (code) => request("POST", `/links/${code}`);
+	const addLink = (id, body) => request("POST", `/messages/${id}/links`, body);
+
+	test("a message can be created with a named short link, which resolves once", async () => {
+		const s = secret();
+		const { status, body } = await create({ link: { secret: s, code: "MyLink" } });
+		assert.equal(status, 201);
+		assert.equal(body.link.code, "mylink");
+		assert.ok(Date.parse(body.link.expiresAt) <= Date.now() + 15 * 60_000);
+
+		const resolved = await resolve("MYLINK");
+		assert.equal(resolved.status, 200);
+		assert.deepEqual(resolved.body, { id: body.id, secret: s });
+		assert.equal((await resolve("mylink")).status, 404);
+	});
+
+	test("names in use are refused, and the message is not created", async () => {
+		await create({ link: { secret: secret(), code: "taken" } });
+		const { status, body } = await create({ link: { secret: secret(), code: "Taken" } });
+		assert.equal(status, 409);
+		assert.equal(body.type, "already_exists");
+	});
+
+	test("a used name is free again", async () => {
+		await create({ link: { secret: secret(), code: "reused" } });
+		await resolve("reused");
+		assert.equal((await create({ link: { secret: secret(), code: "reused" } })).status, 201);
+	});
+
+	for (const code of ["ab", "has/slash", "a".repeat(21), "with space", "account", "API", 42]) {
+		test(`rejects short link name ${JSON.stringify(code)}`, async () => {
+			assert.equal((await create({ link: { secret: secret(), code } })).status, 400);
+		});
+	}
+
+	test("rejects a malformed secret", async () => {
+		assert.equal((await create({ link: { secret: "short" } })).status, 400);
+	});
+
+	test("adding a short link later needs the access token", async () => {
+		const { body: created, authToken } = await create();
+		assert.equal((await addLink(created.id, { authToken: token(), secret: secret() })).status, 403);
+
+		const added = await addLink(created.id, { authToken, secret: secret() });
+		assert.equal(added.status, 201);
+		assert.match(added.body.code, /^[a-z0-9]{6}$/);
+		assert.equal((await resolve(added.body.code)).body.id, created.id);
+	});
+
+	test("short links expire, and never outlive their message", async () => {
+		const { body } = await create({ expiresIn: 60, link: { secret: secret(), code: "brief" } });
+		assert.ok(Date.parse(body.link.expiresAt) <= Date.parse((await request("GET", `/messages/${body.id}`)).body.expiresAt));
+		assert.equal(store.resolveLink("brief", Date.now() + 61_000), undefined);
+	});
+
+	test("short links are deleted when the message burns", async () => {
+		const { body, authToken } = await create({ link: { secret: secret(), code: "burnt" } });
+		await open(body.id, authToken);
+		assert.equal((await resolve("burnt")).status, 404);
+	});
+});
+
+describe("failed attempts", () => {
+	test("block the client after too many, without touching the message", async () => {
+		const strictStore = new Store(":memory:");
+		const strict = createApp({ store: strictStore, config: { ...config, maxFailedAttempts: 3 } }).listen(0);
+		await new Promise((resolve) => strict.once("listening", resolve));
+		const url = `http://127.0.0.1:${strict.address().port}/api`;
+		const post = (path, body) =>
+			fetch(url + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+		try {
+			const authToken = token();
+			const created = await (
+				await post("/messages", { ciphertext: "YQ", authHash: hash(authToken), maxViews: 1, expiresIn: 3600 })
+			).json();
+
+			assert.equal((await post(`/messages/${created.id}/open`, { authToken: token() })).status, 403);
+			assert.equal((await post("/links/nosuchlink", {})).status, 404);
+			assert.equal((await post(`/messages/${created.id}/open`, { authToken: token() })).status, 403);
+
+			const blocked = await post(`/messages/${created.id}/open`, { authToken });
+			assert.equal(blocked.status, 429);
+			assert.equal((await blocked.json()).type, "locked_out");
+			assert.equal(strictStore.getMetadata(created.id).views, 0);
+		} finally {
+			strict.close();
+			strictStore.close();
+		}
 	});
 });
 
