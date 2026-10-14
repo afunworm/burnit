@@ -184,6 +184,10 @@ npm install && npm start
 -   `npm test` runs the client unit tests, and `cd server && npm test` runs the API tests.
 -   `npm run build` builds the client into `server/public`, where the server picks it up.
 
+## **History**
+
+burnit was originally built by hand by its maintainer. AI was later brought in to help with improvements, new features and a new terminal-style look, while the original concept stayed the same: write a secret, share a link, and let it burn.
+
 ## **LICENSE**
 
 #### TL;DR
