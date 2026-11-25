@@ -1,7 +1,7 @@
 import { Component, ElementRef, OnInit, computed, inject, input, signal, viewChild } from "@angular/core";
 import { DOCUMENT } from "@angular/common";
 import { Router, RouterLink } from "@angular/router";
-import { MessageService, ShortLink, apiError, shareUrl, shortUrl } from "../../services/message.service";
+import { MessageService, ShortLink, apiError, shareUrl } from "../../services/message.service";
 import { AccountService, UpdateMessageRequest } from "../../services/account.service";
 import {
 	ConfigValues,
@@ -308,14 +308,10 @@ export class CreatePage implements OnInit {
 		}
 	}
 
-	protected shortUrl(link: ShortLink): string {
-		return shortUrl(this.document.location.origin, link.code);
-	}
-
 	protected linkNote(link: ShortLink): string {
 		const left = formatDuration(Date.parse(link.expiresAt) - Date.now());
-		const at = new Date(link.expiresAt).toLocaleTimeString(undefined, { timeStyle: "short" });
-		return `works once, for ${left} (until ${at})`;
+		const at = new Date(link.expiresAt).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+		return `${link.singleUse ? "works once, " : ""}for ${left} (until ${at})`;
 	}
 
 	/** Adds a random short link to the message that was just saved */
@@ -351,7 +347,7 @@ export class CreatePage implements OnInit {
 			? await this.account.seal({ secret, password: options.password, preview: previewOf(options.content) })
 			: undefined;
 
-		const { id, link } = await this.messages.create({
+		const { id, link, linkError } = await this.messages.create({
 			ciphertext: await encrypt(keys.encryptionKey, options.content),
 			authHash: await hashAuthToken(keys.authToken),
 			usePassword: options.password !== "",
@@ -359,10 +355,12 @@ export class CreatePage implements OnInit {
 			maxViews: options.maxViews,
 			expiresIn: secondsUntil(options.expiresAt, now),
 			ownerBlob,
-			link: options.alias ? { secret, code: options.alias } : undefined,
+			link: options.alias ? { secret, alias: options.alias } : undefined,
 		});
 
 		this.saved(id, secret, keys.authToken, link ? [link] : []);
+		// The message is saved either way; a taken alias only costs the short link
+		if (linkError) this.linkError.set(linkError.error);
 		this.savedToAccount.set(!signedIn ? "no" : ownerBlob ? "with-key" : "without-key");
 		this.message.set("");
 	}
@@ -396,7 +394,7 @@ export class CreatePage implements OnInit {
 		// The message is saved either way; a name that's taken only costs the short link
 		if (options.alias) {
 			try {
-				const link = await this.messages.addLink(editing.id, keys.authToken, { secret: record.secret, code: options.alias });
+				const link = await this.messages.addLink(editing.id, keys.authToken, { secret: record.secret, alias: options.alias });
 				this.shortLinks.set([link]);
 			} catch (error) {
 				this.linkError.set(apiError(error).error);

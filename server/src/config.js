@@ -28,6 +28,9 @@ export function loadConfig() {
 	return {
 		port: int("PORT", 3000),
 		dbFile: process.env.DB_FILE || path.join(dataDir, "burnit.db"),
+		// Encrypts stored credentials (the shortener's API key). Generated into the data directory when unset.
+		secretKey: process.env.SECRET_KEY || "",
+		secretKeyFile: path.join(dataDir, "secret.key"),
 		staticDir: path.resolve(process.env.STATIC_DIR || path.join(rootDir, "public")),
 		trustProxy: trustProxy(process.env.TRUST_PROXY),
 
@@ -37,8 +40,6 @@ export function loadConfig() {
 		maxMessageBytes: int("MAX_MESSAGE_KB", 512) * 1024,
 		// Failed opens (wrong key or password, unknown short link) one IP can make per 15 minutes
 		maxFailedAttempts: int("MAX_FAILED_ATTEMPTS", 10),
-		// How long a short link works, unless it is used (or its message burns) first
-		shortLinkMinutes: int("SHORT_LINK_MINUTES", 15),
 
 		// Per-IP rate limits, per 15 minutes
 		createLimit: int("RATE_LIMIT_CREATE", 30),
@@ -59,5 +60,10 @@ export function loadConfig() {
 		sessionDays: int("SESSION_DAYS", 30),
 		// How long burned messages stay in their owner's history
 		historyDays: int("HISTORY_DAYS", 30),
+		// Accounts (by their sign-in email) that may change server settings, comma-separated
+		adminEmails: (process.env.ADMIN_EMAILS || "")
+			.split(",")
+			.map((email) => email.trim())
+			.filter(Boolean),
 	};
 }

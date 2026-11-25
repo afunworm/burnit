@@ -108,9 +108,10 @@ your secret message</div>
 						<dd>Require a password to decrypt. Aliases: <code>pw</code>, <code>pwd</code>.</dd>
 						<dt>alias &lt;name&gt;</dt>
 						<dd>
-							Also make a short link with this name, 3 - 20 letters or numbers, e.g. <code>alias test</code> for
-							<code>/test</code>. It is easy to type on another device, but <span class="hl">works once, for 15 minutes</span>,
-							and until then the server holds the key. A password still protects the message. Alias: <code>name</code>.
+							Also make a short link with this name at the link shortener, 3 - 64 letters, numbers, <code>-</code> or
+							<code>_</code>, e.g. <code>alias test</code> for <code>byh.uy/test</code>. It is easy to type on another
+							device, but <span class="hl">works for a short while only</span>, and until then the shortener holds the
+							key. A password still protects the message. Alias: <code>name</code>.
 						</dd>
 						<dt>nocopy</dt>
 						<dd>Make the message harder to copy. Aliases: <code>obfuscate</code>.</dd>
@@ -238,8 +239,8 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 					<div class="opt">
 						<label for="opt-alias" class="opt-label">alias</label>
 						<div class="opt-choices">
-							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" class="opt-text" placeholder="none" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
-							<span class="dim">short link name, works once for 15 min</span>
+							<input #alias id="opt-alias" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" class="opt-text" placeholder="none" [value]="start.alias ?? ''" (input)="setText('alias', alias.value)" />
+							<span class="dim">{{ account.shortLinks() ? "short link name, works for a short while" : "short links are not set up on this server" }}</span>
 						</div>
 					</div>
 
@@ -304,16 +305,20 @@ Destroyed after 1 day or 2 views, whichever comes first.</div>
 						}
 					</app-link-card>
 
-					<p class="mt-4">&gt; short link <span class="dim">(easy to type; the server holds the key until it's used)</span></p>
-					@for (link of shortLinks(); track link.code) {
-						<app-link-card class="mb-3" [url]="shortUrl(link)" [note]="linkNote(link)" qr="open" />
+					@if (account.shortLinks() || shortLinks().length || linkError()) {
+						<p class="mt-4">&gt; short link <span class="dim">(easy to type; the link shortener holds the key until it expires)</span></p>
+						@for (link of shortLinks(); track link.id) {
+							<app-link-card class="mb-3" [url]="link.url" [note]="linkNote(link)" qr="open" />
+						}
+						@if (linkError()) {
+							<p class="err" role="alert">ERR: {{ linkError() }}</p>
+						}
+						@if (account.shortLinks()) {
+							<button type="button" class="btn" [disabled]="addingLink()" (click)="addShortLink()">
+								{{ addingLink() ? "CREATING ..." : shortLinks().length ? "ANOTHER SHORT LINK" : "MAKE SHORT LINK" }}
+							</button>
+						}
 					}
-					@if (linkError()) {
-						<p class="err" role="alert">ERR: {{ linkError() }}</p>
-					}
-					<button type="button" class="btn" [disabled]="addingLink()" (click)="addShortLink()">
-						{{ addingLink() ? "CREATING ..." : shortLinks().length ? "ANOTHER SHORT LINK" : "MAKE SHORT LINK" }}
-					</button>
 
 					<div class="mt-4 flex flex-wrap gap-2">
 						<button type="button" class="btn" (click)="closeDialog()">{{ id() ? "BACK TO ACCOUNT" : "NEW MESSAGE" }}</button>

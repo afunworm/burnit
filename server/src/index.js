@@ -1,14 +1,21 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { Store } from "./store.js";
+import { createShortener } from "./shortener.js";
+import { createSecretBox, loadSecretKey } from "./secret-box.js";
 
 const config = loadConfig();
 const store = new Store(config.dbFile);
-const app = createApp({ store, config });
+const secretBox = createSecretBox(loadSecretKey({ value: config.secretKey, file: config.secretKeyFile }));
+const shortener = createShortener({ store, secretBox });
+const app = createApp({ store, config, shortener });
 
 const { issuer, clientId, clientSecret } = config.oidc;
 if (issuer && !(clientId && clientSecret)) {
 	console.warn("OIDC_ISSUER is set, but OIDC_CLIENT_ID or OIDC_CLIENT_SECRET is missing; sign-in is disabled.");
+}
+if (config.adminEmails.length === 0) {
+	console.warn("ADMIN_EMAILS is not set; nobody can configure short links.");
 }
 
 // Expired messages are also rejected on access; this makes sure they don't linger on disk
@@ -19,6 +26,8 @@ const purge = () => {
 	} catch (error) {
 		console.error("Failed to purge expired messages:", error);
 	}
+	// Short links of burned or expired messages are deleted at the shortener, too
+	shortener.sweep().catch((error) => console.error("Failed to delete stale short links:", error));
 };
 purge();
 const purgeTimer = setInterval(purge, config.purgeIntervalMs);

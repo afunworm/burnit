@@ -48,16 +48,27 @@ const SCHEMA = `
 		burn_reason     TEXT
 	) STRICT;
 
-	CREATE TABLE IF NOT EXISTS short_links (
-		code       TEXT    PRIMARY KEY,
-		message_id TEXT    NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
-		secret     TEXT    NOT NULL,
+	-- The retired in-house short links held link secrets; they go with their table
+	DROP TABLE IF EXISTS short_links;
+
+	-- Short links made at the external shortener. message_id becomes NULL once the message
+	-- burns or is deleted, which marks the link for deletion at the shortener.
+	CREATE TABLE IF NOT EXISTS external_links (
+		id         TEXT    PRIMARY KEY,
+		message_id TEXT    REFERENCES messages (id) ON DELETE SET NULL,
+		url        TEXT    NOT NULL,
+		single_use INTEGER NOT NULL,
 		created_at INTEGER NOT NULL,
 		expires_at INTEGER NOT NULL
 	) STRICT;
 
+	CREATE TABLE IF NOT EXISTS settings (
+		key   TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	) STRICT;
+
 	CREATE INDEX IF NOT EXISTS messages_expires_at ON messages (expires_at);
-	CREATE INDEX IF NOT EXISTS short_links_message_id ON short_links (message_id);
+	CREATE INDEX IF NOT EXISTS external_links_message_id ON external_links (message_id);
 	CREATE INDEX IF NOT EXISTS messages_owner_id ON messages (owner_id, created_at);
 	CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions (user_id);
 `;
@@ -86,9 +97,9 @@ const hashesEqual = (a, b) => {
  * to an account are reduced to a tombstone instead: the ciphertext, access hash and
  * the owner's key copy are wiped, and only the bookkeeping is kept for their history.
  *
- * Short links are the one place the server holds a message's link secret. Each one
- * resolves once and only lives for a few minutes, and a message's short links are
- * deleted with it when it burns.
+ * Short links are made at an external shortener, which holds the full link (with its
+ * secret) until the link is deleted there. The external_links table remembers them, so
+ * they can be listed, and deleted at the shortener once they expire or their message burns.
  */
 export class Store {
 	#db;
@@ -120,20 +131,25 @@ export class Store {
 			addFailure: prepare("UPDATE messages SET failed_attempts = failed_attempts + 1 WHERE id = ?"),
 
 			insertLink: prepare(`
-				INSERT INTO short_links (code, message_id, secret, created_at, expires_at)
-				VALUES (:code, :messageId, :secret, :createdAt, :expiresAt)
+				INSERT INTO external_links (id, message_id, url, single_use, created_at, expires_at)
+				VALUES (:id, :messageId, :url, :singleUse, :createdAt, :expiresAt)
+				ON CONFLICT (id) DO NOTHING
 			`),
-			findLink: prepare("SELECT * FROM short_links WHERE code = ? AND expires_at > ?"),
-			deleteLink: prepare("DELETE FROM short_links WHERE code = ?"),
-			deleteStaleLink: prepare("DELETE FROM short_links WHERE code = ? AND expires_at <= ?"),
-			deleteMessageLinks: prepare("DELETE FROM short_links WHERE message_id = ?"),
-			deleteMessageLink: prepare("DELETE FROM short_links WHERE message_id = ? AND code = ?"),
+			detachMessageLinks: prepare("UPDATE external_links SET message_id = NULL WHERE message_id = ? RETURNING id"),
+			detachMessageLink: prepare("UPDATE external_links SET message_id = NULL WHERE message_id = ? AND id = ? RETURNING id"),
 			listOwnedLinks: prepare(`
-				SELECT short_links.* FROM short_links JOIN messages ON messages.id = short_links.message_id
-				WHERE messages.owner_id = ? AND short_links.expires_at > ?
-				ORDER BY short_links.created_at, short_links.code
+				SELECT external_links.* FROM external_links JOIN messages ON messages.id = external_links.message_id
+				WHERE messages.owner_id = ? AND external_links.expires_at > ?
+				ORDER BY external_links.created_at, external_links.id
 			`),
-			purgeLinks: prepare("DELETE FROM short_links WHERE expires_at <= ?"),
+			staleLinks: prepare("SELECT id FROM external_links WHERE message_id IS NULL OR expires_at <= ? ORDER BY created_at"),
+			forgetLink: prepare("DELETE FROM external_links WHERE id = ?"),
+
+			getSetting: prepare("SELECT value FROM settings WHERE key = ?"),
+			setSetting: prepare(`
+				INSERT INTO settings (key, value) VALUES (?, ?)
+				ON CONFLICT (key) DO UPDATE SET value = excluded.value
+			`),
 			update: prepare(`
 				UPDATE messages SET
 					ciphertext = :ciphertext, auth_hash = :authHash, use_password = :usePassword, nocopy = :nocopy,
@@ -183,19 +199,9 @@ export class Store {
 
 	/* ---------- Messages (public) ---------- */
 
-	/**
-	 * Stores a message, and optionally its first short link in the same transaction.
-	 * Returns { status: "ok", link? } | { status: "id_taken" | "code_taken" }.
-	 */
-	insert(message, link) {
-		return this.#transaction(() => {
-			if (link && !this.#codeFree(link.code, message.createdAt)) return { status: "code_taken" };
-			if (!this.#insertMessage(message)) return { status: "id_taken" };
-			return {
-				status: "ok",
-				link: link && this.#insertLink(message.id, link, message.expiresAt, message.createdAt),
-			};
-		});
+	/** Stores a message. Returns { status: "ok" } | { status: "id_taken" }. */
+	insert(message) {
+		return this.#transaction(() => ({ status: this.#insertMessage(message) ? "ok" : "id_taken" }));
 	}
 
 	#insertMessage(message) {
@@ -255,14 +261,14 @@ export class Store {
 		});
 	}
 
-	/* ---------- Short links ---------- */
+	/* ---------- Short links (made at the external shortener) ---------- */
 
 	/**
-	 * Adds a short link to a live message; it never outlives the message.
-	 * `authHash` proves the caller holds the message's key. Owners pass `ownerId` instead.
-	 * Returns { status: "ok", link } | { status: "not_found" | "unauthorized" | "code_taken" }.
+	 * Checks that a short link may be made for a live message: `authHash` proves the caller
+	 * holds the message's key, owners pass `ownerId` instead.
+	 * Returns { status: "ok", expiresAt } | { status: "not_found" | "unauthorized" }.
 	 */
-	addLink(id, link, { authHash, ownerId, now = Date.now() }) {
+	checkLinkAccess(id, { authHash, ownerId, now = Date.now() }) {
 		return this.#transaction(() => {
 			const row = this.#findLive(id, now);
 			if (!row || (ownerId !== undefined && row.owner_id !== ownerId)) return { status: "not_found" };
@@ -270,36 +276,72 @@ export class Store {
 				this.#statements.addFailure.run(id);
 				return { status: "unauthorized" };
 			}
-			if (!this.#codeFree(link.code, now)) return { status: "code_taken" };
-
-			return { status: "ok", link: this.#insertLink(id, link, row.expires_at, now) };
-		});
-	}
-
-	/** Returns the message id and secret behind a short link, and deletes the link: each one works once. */
-	resolveLink(code, now = Date.now()) {
-		return this.#transaction(() => {
-			const link = this.#statements.findLink.get(code, now);
-			if (!link) return undefined;
-
-			this.#statements.deleteLink.run(code);
-			return this.#findLive(link.message_id, now) && { id: link.message_id, secret: link.secret };
+			return { status: "ok", expiresAt: row.expires_at };
 		});
 	}
 
 	/**
-	 * Invalidates one short link of an owned message, or all of them when `code` is omitted.
-	 * Returns the number removed, or undefined if the message isn't the user's.
+	 * Records a link the shortener made; it never outlives its message. If the message burned
+	 * in the meantime, the link is stored detached (so the next sweep deletes it) and
+	 * undefined is returned.
 	 */
-	revokeOwnedLinks(userId, id, code) {
+	recordLink(messageId, { id, url, expiresAt, singleUse }, now = Date.now()) {
+		return this.#transaction(() => {
+			const row = this.#findLive(messageId, now);
+			const link = {
+				id,
+				url,
+				single_use: singleUse ? 1 : 0,
+				created_at: now,
+				expires_at: Math.min(expiresAt, row?.expires_at ?? expiresAt),
+			};
+			this.#statements.insertLink.run({
+				id,
+				messageId: row ? messageId : null,
+				url,
+				singleUse: link.single_use,
+				createdAt: now,
+				expiresAt: link.expires_at,
+			});
+			return row ? toLink(link) : undefined;
+		});
+	}
+
+	/**
+	 * Detaches one short link of an owned message, or all of them when `linkId` is omitted,
+	 * so they get deleted at the shortener. Returns the detached ids, or undefined if the
+	 * message isn't the user's.
+	 */
+	detachOwnedLinks(userId, id, linkId) {
 		return this.#transaction(() => {
 			if (!this.#statements.findOwned.get(id, userId)) return undefined;
-			const result =
-				code === undefined
-					? this.#statements.deleteMessageLinks.run(id)
-					: this.#statements.deleteMessageLink.run(id, code);
-			return Number(result.changes);
+			const rows =
+				linkId === undefined
+					? this.#statements.detachMessageLinks.all(id)
+					: this.#statements.detachMessageLink.all(id, linkId);
+			return rows.map((row) => row.id);
 		});
+	}
+
+	/** Links to delete at the shortener: their message is gone, or their time ran out. */
+	staleLinks(now = Date.now()) {
+		return this.#statements.staleLinks.all(now);
+	}
+
+	/** Forgets a link once the shortener deleted it. */
+	forgetLink(id) {
+		this.#statements.forgetLink.run(id);
+	}
+
+	/* ---------- Settings ---------- */
+
+	getSetting(key) {
+		const row = this.#statements.getSetting.get(key);
+		return row ? JSON.parse(row.value) : undefined;
+	}
+
+	setSetting(key, value) {
+		this.#statements.setSetting.run(key, JSON.stringify(value));
 	}
 
 	/**
@@ -311,7 +353,6 @@ export class Store {
 		return this.#transaction(() => {
 			const removed =
 				Number(this.#statements.purgeUnowned.run(now).changes) + Number(this.#statements.expireOwned.run(now).changes);
-			this.#statements.purgeLinks.run(now);
 			this.#statements.purgeHistory.run(now - historyMs);
 			this.#statements.purgeSessions.run(now);
 			this.#statements.purgeLoginStates.run(now);
@@ -475,25 +516,13 @@ export class Store {
 		return this.#findLive(id, now) ?? this.#statements.findOwned.get(id, userId);
 	}
 
-	/** Whether a short link code is available. A link that expired but wasn't purged yet frees its code. */
-	#codeFree(code, now) {
-		this.#statements.deleteStaleLink.run(code, now);
-		return !this.#statements.findLink.get(code, now);
-	}
-
-	#insertLink(messageId, { code, secret, expiresAt }, messageExpiresAt, now) {
-		const link = { code, created_at: now, expires_at: Math.min(expiresAt, messageExpiresAt) };
-		this.#statements.insertLink.run({ code, messageId, secret, createdAt: now, expiresAt: link.expires_at });
-		return toLink(link);
-	}
-
 	#ownedLinks(userId, id, now) {
 		return this.#statements.listOwnedLinks.all(userId, now).filter((link) => link.message_id === id);
 	}
 
 	#destroy(row, reason, now) {
-		// Short links hold the secret; they never outlive the message
-		this.#statements.deleteMessageLinks.run(row.id);
+		// Short links lead to the secret; detached, they get deleted at the shortener
+		this.#statements.detachMessageLinks.all(row.id);
 		if (row.owner_id === null) this.#statements.delete.run(row.id);
 		else this.#statements.tombstone.run({ id: row.id, reason, now });
 	}
@@ -528,12 +557,14 @@ const toMetadata = (row) => ({
 });
 
 const toLink = (row) => ({
-	code: row.code,
+	id: row.id,
+	url: row.url,
+	singleUse: row.single_use === 1,
 	createdAt: iso(row.created_at),
 	expiresAt: iso(row.expires_at),
 });
 
-/** `links` are the message's live short links (database rows), without their secrets. */
+/** `links` are the message's live short links (database rows). */
 const toOwned = (row, links = []) => ({
 	id: row.id,
 	...toMetadata(row),

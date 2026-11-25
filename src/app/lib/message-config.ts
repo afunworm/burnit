@@ -64,7 +64,9 @@ const TIME_UNITS: Record<string, TimeUnit> = {
 };
 
 const SEPARATOR = "\n---\n";
-const ALIAS_PATTERN = /^[A-Za-z0-9]{3,20}$/;
+/** The shortener's alias rules: 3 - 64 letters, numbers, - or _, starting with a letter or number */
+export const ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$/;
+export const ALIAS_RULES = "alias must be 3 - 64 letters, numbers, - or _, starting with a letter or number.";
 
 export function addTime(date: Date, amount: number, unit: TimeUnit): Date {
 	const result = new Date(date);
@@ -191,7 +193,7 @@ function parseLine(line: string): ConfigLine {
 	if (ALIAS_KEYWORDS.includes(command)) {
 		return ALIAS_PATTERN.test(params)
 			? { kind: "alias", value: params }
-			: { kind: "invalid", error: "alias must be 3 - 20 letters or numbers." };
+			: { kind: "invalid", error: ALIAS_RULES };
 	}
 	if (PASSWORD_KEYWORDS.includes(command)) {
 		// Keep the password exactly as typed after the keyword, including inner spaces

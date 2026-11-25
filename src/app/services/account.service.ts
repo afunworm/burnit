@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
-import { firstValueFrom } from "rxjs";
+import { Observable, firstValueFrom } from "rxjs";
 import { MessageMetadata, ShortLink } from "./message.service";
 import {
 	OwnerRecord,
@@ -25,7 +25,39 @@ export interface User {
 interface Session {
 	accounts: { enabled: boolean; provider: string };
 	user: User | null;
+	admin: boolean;
+	shortLinks: { enabled: boolean };
 }
+
+/** The shortener settings an admin sees. The API key itself never comes back. */
+export interface ShortenerStatus {
+	endpoint: string;
+	domainId: number | null;
+	/** 0 = as long as the message */
+	lifetimeMinutes: number;
+	singleUse: boolean;
+	providerExpiry: boolean;
+	/** The OAuth app registered at the shortener (Admin ▸ Apps there) */
+	oauthClient: { clientId: string; secretSet: boolean };
+	/** The redirect URI to register with that app */
+	redirectUri: string;
+	connection: {
+		method: "oauth" | "api_key" | null;
+		connected: boolean;
+		/** Revoked at the service, or encrypted with a different SECRET_KEY */
+		needsReconnect: boolean;
+		/** API key only: its first and last characters */
+		hint: string;
+		/** OAuth only */
+		workspace: string;
+		scope: string;
+		tokenExpiresAt: string | null;
+		refreshable: boolean;
+		connectedAt: string | null;
+	};
+}
+
+export type ShortenerOptions = Partial<Pick<ShortenerStatus, "endpoint" | "domainId" | "lifetimeMinutes" | "singleUse" | "providerExpiry">>;
 
 export type BurnReason = "read" | "expired" | "attempts" | "revoked";
 
@@ -68,6 +100,10 @@ export class AccountService {
 	readonly enabled = signal(false);
 	readonly provider = signal("PocketID");
 	readonly user = signal<User | null>(null);
+	/** Whether this account may change server settings */
+	readonly admin = signal(false);
+	/** Whether the server can make short links (an admin connected a shortener) */
+	readonly shortLinks = signal(false);
 	private readonly vaultKey = signal<CryptoKey | null>(null);
 
 	readonly vaultState = computed<VaultState>(() => {
@@ -85,6 +121,8 @@ export class AccountService {
 			const session = await firstValueFrom(this.http.get<Session>("/api/session"));
 			this.enabled.set(session.accounts.enabled);
 			this.provider.set(session.accounts.provider);
+			this.admin.set(session.admin);
+			this.shortLinks.set(session.shortLinks.enabled);
 			await this.setUser(session.user);
 		} catch {
 			this.enabled.set(false);
@@ -101,6 +139,7 @@ export class AccountService {
 		} finally {
 			await this.lockVault();
 			this.user.set(null);
+			this.admin.set(false);
 		}
 	}
 
@@ -108,6 +147,7 @@ export class AccountService {
 		await firstValueFrom(this.http.delete(this.apiUrl));
 		await this.lockVault();
 		this.user.set(null);
+		this.admin.set(false);
 	}
 
 	/* ---------- Vault ---------- */
@@ -181,15 +221,53 @@ export class AccountService {
 		return firstValueFrom(this.http.delete(this.messageUrl(id)));
 	}
 
-	/** Adds a short link; without a code, the server picks a random one. */
-	addLink(id: string, secret: string, code?: string): Promise<ShortLink> {
-		return firstValueFrom(this.http.post<ShortLink>(`${this.messageUrl(id)}/links`, { secret, code }));
+	/** Adds a short link; without an alias, the shortener picks a random one. */
+	addLink(id: string, secret: string, alias?: string): Promise<ShortLink> {
+		return firstValueFrom(this.http.post<ShortLink>(`${this.messageUrl(id)}/links`, { secret, alias }));
 	}
 
-	/** Invalidates one short link, or every one of the message's when `code` is omitted. */
-	revokeLinks(id: string, code?: string): Promise<unknown> {
+	/** Deletes one short link, or every one of the message's when `linkId` is omitted. */
+	revokeLinks(id: string, linkId?: string): Promise<unknown> {
 		const url = `${this.messageUrl(id)}/links`;
-		return firstValueFrom(this.http.delete(code ? `${url}/${encodeURIComponent(code)}` : url));
+		return firstValueFrom(this.http.delete(linkId ? `${url}/${encodeURIComponent(linkId)}` : url));
+	}
+
+	/* ---------- Admin: link shortener ---------- */
+
+	shortenerStatus(): Promise<ShortenerStatus> {
+		return firstValueFrom(this.http.get<ShortenerStatus>(this.shortenerUrl));
+	}
+
+	updateShortener(options: ShortenerOptions): Promise<ShortenerStatus> {
+		return this.trackShortener(this.http.put<ShortenerStatus>(this.shortenerUrl, options));
+	}
+
+	/** Saves the OAuth app and returns the shortener's authorize URL to send the browser to. */
+	startShortenerOAuth(clientId: string, clientSecret?: string, endpoint?: string): Promise<{ authorizeUrl: string }> {
+		return firstValueFrom(
+			this.http.post<{ authorizeUrl: string }>(`${this.shortenerUrl}/oauth/start`, { clientId, clientSecret, endpoint })
+		);
+	}
+
+	/** Fallback: verifies the API key with the service, then stores it (encrypted) on the server. */
+	connectShortener(apiKey: string, endpoint?: string): Promise<ShortenerStatus> {
+		return this.trackShortener(this.http.post<ShortenerStatus>(`${this.shortenerUrl}/connect`, { apiKey, endpoint }));
+	}
+
+	disconnectShortener(): Promise<ShortenerStatus> {
+		return this.trackShortener(this.http.post<ShortenerStatus>(`${this.shortenerUrl}/disconnect`, {}));
+	}
+
+	testShortener(): Promise<ShortenerStatus> {
+		return firstValueFrom(this.http.post<ShortenerStatus>(`${this.shortenerUrl}/test`, {}));
+	}
+
+	private readonly shortenerUrl = `${this.apiUrl}/admin/shortener`;
+
+	private async trackShortener(request: Observable<ShortenerStatus>): Promise<ShortenerStatus> {
+		const status = await firstValueFrom(request);
+		this.shortLinks.set(status.connection.connected);
+		return status;
 	}
 
 	private messageUrl(id: string): string {

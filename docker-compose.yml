@@ -27,6 +27,10 @@ services:
    - OIDC_PROVIDER_NAME
    - SESSION_DAYS
    - HISTORY_DAYS
+   # Accounts that may change server settings (Admin), e.g. the link shortener
+   - ADMIN_EMAILS
+   # Encrypts stored credentials; generated into the data volume when unset
+   - SECRET_KEY
    # Optional limits (see README); unset = defaults
    - MAX_TTL_DAYS
    - MAX_VIEWS

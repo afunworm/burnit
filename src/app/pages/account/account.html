@@ -117,6 +117,9 @@
 				<button type="button" class="key" (click)="lockVault()">Lock</button>
 			}
 			<button type="button" class="key" (click)="openSettings()">Settings</button>
+			@if (account.admin()) {
+				<button type="button" class="key" (click)="openAdmin()">Admin</button>
+			}
 			<button type="button" class="key" (click)="logout()">Log out</button>
 		}
 	</nav>
@@ -187,26 +190,28 @@
 						@if (!row.burnedAt) {
 							<h2>SHORT LINKS <span class="dim font-normal">({{ row.links.length }} live)</span></h2>
 							<p class="dim">
-								Easy to type on another device. Each works once, for a few minutes, and until then the
-								server holds the key.{{ row.usePassword ? " The password is still needed." : "" }}
+								Easy to type on another device. They work for a short while, and until then the link
+								shortener holds the key.{{ row.usePassword ? " The password is still needed." : "" }}
 							</p>
-							@for (link of row.links; track link.code) {
-								<app-link-card class="mt-3" [url]="shortUrl(link)" [note]="linkNote(link)">
+							@for (link of row.links; track link.id) {
+								<app-link-card class="mt-3" [url]="link.url" [note]="linkNote(link)">
 									<button type="button" class="btn" [disabled]="busy()" (click)="revokeLink(row, link)">INVALIDATE</button>
 								</app-link-card>
 							}
-							@if (row.record) {
+							@if (!account.shortLinks()) {
+								<p class="dim mt-3">&gt; short links are not set up on this server{{ account.admin() ? ": connect a link shortener in Admin" : "" }}</p>
+							} @else if (row.record) {
 								<form class="mt-3" (submit)="addLink(row, $event)">
 									<label class="prompt-line">
 										<span class="flex-none">alias:</span>
-										<input #alias type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="20" placeholder="random" class="min-w-0 flex-1" [value]="linkName()" (input)="linkName.set(alias.value)" />
+										<input #alias type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="64" placeholder="random" class="min-w-0 flex-1" [value]="linkName()" (input)="linkName.set(alias.value)" />
 									</label>
 								</form>
 							} @else {
 								<p class="warn mt-3">&gt; unlock your vault to make short links</p>
 							}
 							<div class="mt-3 flex flex-wrap gap-2">
-								@if (row.record) {
+								@if (row.record && account.shortLinks()) {
 									<button type="button" class="btn" [disabled]="busy()" (click)="addLink(row)">NEW SHORT LINK</button>
 									@if (row.links.length > 0) {
 										<button type="button" class="btn" [disabled]="busy()" (click)="revokeLinks(row, true)">REGENERATE</button>
@@ -296,6 +301,136 @@
 							{{ confirming() === "delete-account" ? "CONFIRM: DELETE EVERYTHING" : "DELETE ACCOUNT" }}
 						</button>
 					</div>
+				</div>
+			</div>
+		</div>
+	}
+	@case ("admin") {
+		<div class="dialog-backdrop" (click)="closeDialog()">
+			<div class="dialog" role="dialog" aria-labelledby="admin-title" (click)="$event.stopPropagation()">
+				<div class="dialog-title">
+					<span id="admin-title">ADMIN</span>
+					<button type="button" class="btn" (click)="closeDialog()">ESC</button>
+				</div>
+
+				<div class="dialog-body">
+					<h2>LINK SHORTENER</h2>
+					@if (shortener(); as s) {
+						<div class="pl-4">
+							<dl class="config">
+								<dt>service</dt>
+								<dd>{{ s.endpoint }}</dd>
+								<dt>status</dt>
+								<dd>
+									@if (s.connection.connected) {
+										<span class="bright">connected</span>
+										@if (s.connection.method === "oauth") {
+											through OAuth{{ s.connection.workspace ? " · workspace " + s.connection.workspace : "" }}{{ s.connection.scope ? " · " + s.connection.scope : "" }}
+										} @else {
+											with API key {{ s.connection.hint }}
+										}
+										{{ s.connection.connectedAt ? " · since " + dateTime(s.connection.connectedAt) : "" }}
+									} @else if (s.connection.needsReconnect) {
+										<span class="warn">disconnected by the service</span> (revoked, expired, or SECRET_KEY changed): reconnect
+									} @else {
+										<span class="warn">not connected</span>: short links are off
+									}
+								</dd>
+								@if (s.connection.connected && s.connection.method === "oauth") {
+									<dt>token</dt>
+									<dd>{{ s.connection.tokenExpiresAt ? "renews automatically" + (s.connection.refreshable ? "" : " (no refresh token: reconnect when it expires)") : "lasts until disconnected" }}</dd>
+								}
+							</dl>
+
+							@if (s.connection.connected && !reconnecting()) {
+								<div class="mt-3 flex flex-wrap gap-2">
+									<button type="button" class="btn" [disabled]="busy()" (click)="testShortener()">TEST</button>
+									<button type="button" class="btn" [disabled]="busy()" (click)="reconnecting.set(true)">RECONNECT</button>
+									<button type="button" class="btn" [class.danger]="confirming() === 'disconnect'" [disabled]="busy()" (click)="disconnectShortener()">
+										{{ confirming() === "disconnect" ? "CONFIRM: DISCONNECT" : "DISCONNECT" }}
+									</button>
+								</div>
+								@if (confirming() === "disconnect") {
+									<p class="warn mt-2">The connection is revoked at the service, and no new short links can be made. Existing ones keep working until they expire.</p>
+								}
+							} @else {
+								<label class="prompt-line mt-3">
+									<span class="flex-none">endpoint:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+									<input #ep type="url" autocomplete="off" spellcheck="false" class="min-w-0 flex-1" [value]="endpoint()" (input)="endpoint.set(ep.value)" />
+								</label>
+
+								@if (!useApiKey()) {
+									<form class="mt-3" (submit)="connectOAuth($event)">
+										<p class="dim max-w-2xl">
+											Register burnit in byh.uy under Admin ▸ Apps as a <span class="bright">server app</span> with the
+											links:read and links:write permissions, and this redirect URI:
+										</p>
+										<div class="code-block select-all mt-2">{{ s.redirectUri }}</div>
+										<label class="prompt-line mt-2">
+											<span class="flex-none">client id:&nbsp;&nbsp;&nbsp;&nbsp;</span>
+											<input #cid type="text" autocomplete="off" spellcheck="false" placeholder="sdmc_..." class="min-w-0 flex-1" [value]="clientId()" (input)="clientId.set(cid.value)" />
+										</label>
+										<label class="prompt-line mt-2">
+											<span class="flex-none">client secret:</span>
+											<input #csec type="password" autocomplete="off" spellcheck="false" [placeholder]="s.oauthClient.secretSet ? 'saved (leave empty to keep)' : 'sdms_... (empty for a public app)'" class="min-w-0 flex-1" [value]="clientSecret()" (input)="clientSecret.set(csec.value)" />
+										</label>
+										<div class="mt-3 flex flex-wrap gap-2">
+											<button type="submit" class="btn" [disabled]="busy()">{{ busy() ? "REDIRECTING ..." : "CONNECT TO BYH.UY" }}</button>
+											<button type="button" class="btn" [disabled]="busy()" (click)="useApiKey.set(true)">USE AN API KEY INSTEAD</button>
+											@if (reconnecting()) {
+												<button type="button" class="btn" [disabled]="busy()" (click)="reconnecting.set(false)">CANCEL</button>
+											}
+										</div>
+										<p class="dim mt-2">You'll approve the connection at byh.uy and come back here. Tokens are stored encrypted on the server.</p>
+									</form>
+								} @else {
+									<form class="mt-3" (submit)="connectShortener($event)">
+										<p class="dim max-w-2xl">
+											For services without OAuth: in byh.uy, open API &amp; webhooks ▸ New key. The key is checked
+											with the service, stored encrypted, and never shown again.
+										</p>
+										<label class="prompt-line mt-2">
+											<span class="flex-none">api key:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+											<input #key type="password" autocomplete="off" spellcheck="false" placeholder="sdm_..." class="min-w-0 flex-1" [value]="apiKey()" (input)="apiKey.set(key.value)" />
+										</label>
+										<div class="mt-3 flex flex-wrap gap-2">
+											<button type="submit" class="btn" [disabled]="busy()">{{ busy() ? "CONNECTING ..." : "CONNECT WITH KEY" }}</button>
+											<button type="button" class="btn" [disabled]="busy()" (click)="useApiKey.set(false)">USE OAUTH INSTEAD</button>
+											@if (reconnecting()) {
+												<button type="button" class="btn" [disabled]="busy()" (click)="reconnecting.set(false)">CANCEL</button>
+											}
+										</div>
+									</form>
+								}
+							}
+						</div>
+
+						<h2>LINK OPTIONS</h2>
+						<form class="pl-4" (submit)="saveShortenerOptions($event, lifetime.value, domain.value, single.checked, expiry.checked)">
+							<label class="prompt-line mt-2">
+								<span class="flex-none">lifetime (min):</span>
+								<input #lifetime type="number" min="0" step="1" class="min-w-0 flex-1" [value]="s.lifetimeMinutes" />
+							</label>
+							<p class="dim">0 = as long as the message. Short links never outlive their message.</p>
+							<label class="prompt-line mt-2">
+								<span class="flex-none">domain id:&nbsp;&nbsp;&nbsp;&nbsp;</span>
+								<input #domain type="number" min="0" step="1" placeholder="workspace default" class="min-w-0 flex-1" [value]="s.domainId ?? ''" />
+							</label>
+							<label class="mt-2 block"><input #single type="checkbox" [checked]="s.singleUse" /> single use (needs the plan's click limit feature)</label>
+							<label class="mt-1 block"><input #expiry type="checkbox" [checked]="s.providerExpiry" /> let the shortener expire links too (needs the plan's expiry feature)</label>
+							<p class="dim mt-1">Either way, burnit deletes a short link at the shortener when it expires or its message burns.</p>
+							<button type="submit" class="btn mt-3" [disabled]="busy()">SAVE</button>
+						</form>
+					} @else if (busy()) {
+						<p class="cursor pl-4">&gt; loading ...</p>
+					}
+
+					@if (adminMessage()) {
+						<p class="bright mt-3" role="status">&gt; {{ adminMessage() }}</p>
+					}
+					@if (adminError()) {
+						<p class="err mt-3" role="alert">ERR: {{ adminError() }}</p>
+					}
 				</div>
 			</div>
 		</div>

@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { createApp } from "../src/app.js";
 import { Store } from "../src/store.js";
+import { createShortener } from "../src/shortener.js";
+import { fakeShortener } from "./fake-shortener.js";
 
 const config = {
 	staticDir: "/nonexistent",
@@ -11,7 +13,6 @@ const config = {
 	maxViews: 10000,
 	maxMessageBytes: 1024,
 	maxFailedAttempts: 1000,
-	shortLinkMinutes: 15,
 	createLimit: 1000,
 	openLimit: 1000,
 	accountLimit: 1000,
@@ -23,10 +24,15 @@ const config = {
 let store;
 let server;
 let baseUrl;
+let fake;
+let shortener;
 
 before(async () => {
 	store = new Store(":memory:");
-	server = createApp({ store, config }).listen(0);
+	fake = fakeShortener();
+	shortener = createShortener({ store, fetch: fake.fetch });
+	await shortener.connect({ apiKey: fake.settings.apiKey });
+	server = createApp({ store, config, shortener }).listen(0);
 	await new Promise((resolve) => server.once("listening", resolve));
 	baseUrl = `http://127.0.0.1:${server.address().port}/api`;
 });
@@ -175,38 +181,35 @@ describe("reading messages", () => {
 
 describe("short links", () => {
 	const secret = () => randomBytes(32).toString("base64url");
-	const resolve = (code) => request("POST", `/links/${code}`);
 	const addLink = (id, body) => request("POST", `/messages/${id}/links`, body);
+	const remote = (body) => fake.links.get(String(body.link?.id ?? body.id));
 
-	test("a message can be created with a named short link, which resolves once", async () => {
+	test("a message can be created with a named short link at the shortener", async () => {
 		const s = secret();
-		const { status, body } = await create({ link: { secret: s, code: "MyLink" } });
+		const { status, body } = await create({ link: { secret: s, alias: "MyLink" } });
 		assert.equal(status, 201);
-		assert.equal(body.link.code, "mylink");
+		assert.equal(body.link.url, "https://byh.uy/MyLink");
+		assert.equal(body.link.singleUse, true);
 		assert.ok(Date.parse(body.link.expiresAt) <= Date.now() + 15 * 60_000);
 
-		const resolved = await resolve("MYLINK");
-		assert.equal(resolved.status, 200);
-		assert.deepEqual(resolved.body, { id: body.id, secret: s });
-		assert.equal((await resolve("mylink")).status, 404);
+		const made = remote(body);
+		assert.match(made.url, new RegExp(`/v/${body.id}#${s}$`));
+		assert.equal(made.clickLimit, 1);
+		assert.equal(made.expiresAt, body.link.expiresAt);
 	});
 
-	test("names in use are refused, and the message is not created", async () => {
-		await create({ link: { secret: secret(), code: "taken" } });
-		const { status, body } = await create({ link: { secret: secret(), code: "Taken" } });
-		assert.equal(status, 409);
-		assert.equal(body.type, "already_exists");
+	test("a taken alias only costs the link; the message is still created", async () => {
+		await create({ link: { secret: secret(), alias: "taken" } });
+		const { status, body } = await create({ link: { secret: secret(), alias: "taken" } });
+		assert.equal(status, 201);
+		assert.ok(body.id);
+		assert.equal(body.link, undefined);
+		assert.equal(body.linkError.type, "already_exists");
 	});
 
-	test("a used name is free again", async () => {
-		await create({ link: { secret: secret(), code: "reused" } });
-		await resolve("reused");
-		assert.equal((await create({ link: { secret: secret(), code: "reused" } })).status, 201);
-	});
-
-	for (const code of ["ab", "has/slash", "a".repeat(21), "with space", "account", "API", 42]) {
-		test(`rejects short link name ${JSON.stringify(code)}`, async () => {
-			assert.equal((await create({ link: { secret: secret(), code } })).status, 400);
+	for (const alias of ["ab", "has/slash", "a".repeat(65), "with space", "-dash", 42]) {
+		test(`rejects alias ${JSON.stringify(alias)}`, async () => {
+			assert.equal((await create({ link: { secret: secret(), alias } })).status, 400);
 		});
 	}
 
@@ -216,24 +219,52 @@ describe("short links", () => {
 
 	test("adding a short link later needs the access token", async () => {
 		const { body: created, authToken } = await create();
+		const before = fake.links.size;
 		assert.equal((await addLink(created.id, { authToken: token(), secret: secret() })).status, 403);
+		assert.equal(fake.links.size, before);
 
 		const added = await addLink(created.id, { authToken, secret: secret() });
 		assert.equal(added.status, 201);
-		assert.match(added.body.code, /^[a-z0-9]{6}$/);
-		assert.equal((await resolve(added.body.code)).body.id, created.id);
+		assert.ok(remote(added.body));
 	});
 
-	test("short links expire, and never outlive their message", async () => {
-		const { body } = await create({ expiresIn: 60, link: { secret: secret(), code: "brief" } });
+	test("short links never outlive their message", async () => {
+		const { body } = await create({ expiresIn: 60, link: { secret: secret(), alias: "brief" } });
 		assert.ok(Date.parse(body.link.expiresAt) <= Date.parse((await request("GET", `/messages/${body.id}`)).body.expiresAt));
-		assert.equal(store.resolveLink("brief", Date.now() + 61_000), undefined);
 	});
 
-	test("short links are deleted when the message burns", async () => {
-		const { body, authToken } = await create({ link: { secret: secret(), code: "burnt" } });
+	test("short links are deleted at the shortener once their message burns", async () => {
+		const { body, authToken } = await create({ link: { secret: secret(), alias: "burnt" } });
 		await open(body.id, authToken);
-		assert.equal((await resolve("burnt")).status, 404);
+		assert.ok(remote(body));
+		await shortener.sweep();
+		assert.equal(remote(body), undefined);
+	});
+
+	test("expired short links are deleted at the shortener", async () => {
+		const { body } = await create({ link: { secret: secret() } });
+		await shortener.sweep(Date.now() + 16 * 60_000);
+		assert.equal(remote(body), undefined);
+	});
+
+	test("without a connection, short links are refused", async () => {
+		const bare = new Store(":memory:");
+		const app = createApp({ store: bare, config }).listen(0);
+		await new Promise((resolve) => app.once("listening", resolve));
+		try {
+			const url = `http://127.0.0.1:${app.address().port}/api`;
+			const session = await (await fetch(`${url}/session`)).json();
+			assert.equal(session.shortLinks.enabled, false);
+			const response = await fetch(`${url}/messages`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ ciphertext: "YQ", authHash: hash(token()), maxViews: 1, expiresIn: 3600, link: { secret: secret() } }),
+			});
+			assert.equal((await response.json()).linkError.type, "shortener_disabled");
+		} finally {
+			app.close();
+			bare.close();
+		}
 	});
 });
 
@@ -253,7 +284,7 @@ describe("failed attempts", () => {
 			).json();
 
 			assert.equal((await post(`/messages/${created.id}/open`, { authToken: token() })).status, 403);
-			assert.equal((await post("/links/nosuchlink", {})).status, 404);
+			assert.equal((await post(`/messages/${created.id}/links`, { authToken: token(), secret: "x".repeat(43) })).status, 403);
 			assert.equal((await post(`/messages/${created.id}/open`, { authToken: token() })).status, 403);
 
 			const blocked = await post(`/messages/${created.id}/open`, { authToken });

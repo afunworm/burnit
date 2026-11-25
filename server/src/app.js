@@ -5,6 +5,8 @@ import express from "express";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import { createAuth } from "./auth.js";
+import { ApiError } from "./errors.js";
+import { ALIAS_PATTERN, createShortener } from "./shortener.js";
 
 const ID_PATTERN = /^[A-Za-z0-9]{3,20}$/;
 const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -14,22 +16,9 @@ const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const MIN_TTL_SECONDS = 60;
 const MAX_BLOB_LENGTH = 8192;
 
-class ApiError extends Error {
-	constructor(status, type, message, extra = {}) {
-		super(message);
-		this.status = status;
-		this.type = type;
-		this.extra = extra;
-	}
-}
-
-// Short link codes are case-insensitive and stored lowercase. Generated ones skip look-alikes (0/o, 1/l/i).
-const CODE_PATTERN = /^[a-z0-9]{3,20}$/;
-const CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
-const GENERATED_CODE_LENGTH = 6;
 const SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-// Short links live at the site root, next to the client's own pages
-const RESERVED_CODES = new Set(["api", "auth", "create", "edit", "account"]);
+// Ids the shortener gave its links; they go back into its URLs
+const LINK_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 const randomString = (alphabet, length) =>
 	Array.from({ length }, () => alphabet[randomInt(alphabet.length)]).join("");
@@ -103,51 +92,28 @@ const requireJsonObject = (body) => {
 	return body;
 };
 
-/**
- * A requested short link: { secret, code? }. The code is lowercased; without one, the
- * caller generates a random one. Returns { code, secret, expiresAt }.
- */
-function parseLinkRequest(body, config) {
+/** A requested short link: { secret, alias? }. Without an alias, the shortener picks one. */
+function parseLinkRequest(body) {
 	requireJsonObject(body);
 
 	if (typeof body.secret !== "string" || !SECRET_PATTERN.test(body.secret)) {
 		throw new ApiError(400, "invalid_request", "secret must be the 43 character link secret.");
 	}
-
-	let code;
-	if (body.code !== undefined) {
-		code = typeof body.code === "string" ? body.code.toLowerCase() : "";
-		if (!CODE_PATTERN.test(code)) {
-			throw new ApiError(400, "invalid_alias", "Alias can only contain letters and numbers, and must be 3 - 20 characters long.");
-		}
-		if (RESERVED_CODES.has(code)) throw new ApiError(400, "invalid_alias", `"${code}" is reserved; pick another alias.`);
+	if (body.alias !== undefined && (typeof body.alias !== "string" || !ALIAS_PATTERN.test(body.alias))) {
+		throw new ApiError(
+			400,
+			"invalid_alias",
+			"Alias must be 3 - 64 letters, numbers, - or _, starting with a letter or number."
+		);
 	}
-
-	return { code, secret: body.secret, expiresAt: Date.now() + config.shortLinkMinutes * 60_000 };
-}
-
-const codeTaken = (code) =>
-	new ApiError(409, "already_exists", `The short link "${code}" is in use right now. Pick another alias, or wait for it to expire.`);
-
-/** Runs `insert` with the requested code, or with fresh random codes until one is free. */
-function withCode(link, insert) {
-	if (link.code) {
-		const result = insert(link);
-		if (result.status === "code_taken") throw codeTaken(link.code);
-		return result;
-	}
-	for (let attempt = 0; attempt < 5; attempt++) {
-		const result = insert({ ...link, code: randomString(CODE_ALPHABET, GENERATED_CODE_LENGTH) });
-		if (result.status !== "code_taken") return result;
-	}
-	throw new Error("Unable to generate a unique short link.");
+	return { secret: body.secret, alias: body.alias };
 }
 
 function parseCreateRequest(body, config) {
 	requireJsonObject(body);
 
 	return {
-		link: body.link === undefined ? undefined : parseLinkRequest(body.link, config),
+		link: body.link === undefined ? undefined : parseLinkRequest(body.link),
 		ciphertext: requireCiphertext(body.ciphertext, config),
 		authHash: requireAuthHash(body.authHash),
 		expiresIn: requireExpiresIn(body.expiresIn, config),
@@ -184,8 +150,33 @@ function parseVaultRequest(body) {
 	};
 }
 
-export function createApp({ store, config }) {
+export function createApp({ store, config, shortener = createShortener({ store }) }) {
 	const auth = createAuth({ store, config });
+	const adminEmails = new Set((config.adminEmails ?? []).map((email) => email.toLowerCase()));
+	const isAdmin = (user) => Boolean(user?.email) && adminEmails.has(user.email.toLowerCase());
+
+	/**
+	 * Has the shortener make a short link to the message's full link. The full link holds
+	 * the secret, so the shortener can open the message for as long as the link exists.
+	 */
+	const makeLink = async (req, id, { secret, alias }, messageExpiresAt) => {
+		const made = await shortener.create({ url: `${auth.publicOrigin(req)}/v/${id}#${secret}`, alias, messageExpiresAt });
+		const link = store.recordLink(id, made);
+		if (!link) throw new ApiError(409, "burned", "This message does not exist or has already been destroyed.");
+		return link;
+	};
+
+	/** Deletes detached links at the shortener now; whatever fails is retried by the sweep. */
+	const deleteLinks = (ids) =>
+		Promise.all(
+			ids.map(async (linkId) => {
+				try {
+					if (await shortener.remove(linkId)) store.forgetLink(linkId);
+				} catch {
+					// Left for the sweep
+				}
+			})
+		);
 	const app = express();
 	app.disable("x-powered-by");
 	app.set("trust proxy", config.trustProxy);
@@ -234,7 +225,7 @@ export function createApp({ store, config }) {
 		res.json({ status: "ok" });
 	});
 
-	api.post("/messages", limiter(config.createLimit), (req, res) => {
+	api.post("/messages", limiter(config.createLimit), async (req, res) => {
 		const { link, ...input } = parseCreateRequest(req.body, config);
 		const createdAt = Date.now();
 		const message = {
@@ -246,17 +237,21 @@ export function createApp({ store, config }) {
 		};
 
 		// Collisions are astronomically unlikely with 62^10 ids, but retry anyway
-		const insert = (withLink) => {
-			for (let attempt = 0; attempt < 5; attempt++) {
-				const id = generateId();
-				const result = store.insert({ ...message, id }, withLink);
-				if (result.status !== "id_taken") return { ...result, id };
-			}
-			throw new Error("Unable to generate a unique message id.");
-		};
+		let id;
+		for (let attempt = 0; attempt < 5 && !id; attempt++) {
+			const candidate = generateId();
+			if (store.insert({ ...message, id: candidate }).status === "ok") id = candidate;
+		}
+		if (!id) throw new Error("Unable to generate a unique message id.");
 
-		const result = link ? withCode(link, insert) : insert(undefined);
-		res.status(201).json({ id: result.id, ...(result.link && { link: result.link }) });
+		// The message is saved either way; a short link that fails only costs the link
+		if (!link) return res.status(201).json({ id });
+		try {
+			res.status(201).json({ id, link: await makeLink(req, id, link, message.expiresAt) });
+		} catch (error) {
+			if (!(error instanceof ApiError)) throw error;
+			res.status(201).json({ id, linkError: { error: error.message, type: error.type } });
+		}
 	});
 
 	// Failed attempts block the client (by IP) for a while. Counting them per message
@@ -274,25 +269,14 @@ export function createApp({ store, config }) {
 			}),
 	});
 
-	api.post("/messages/:id/links", limiter(config.createLimit), failureLimiter, (req, res) => {
+	api.post("/messages/:id/links", limiter(config.createLimit), failureLimiter, async (req, res) => {
 		const id = requireId(req.params.id);
 		const authToken = requireAuthToken(req.body?.authToken);
-		const result = withCode(parseLinkRequest(req.body, config), (link) =>
-			store.addLink(id, link, { authHash: sha256Hex(authToken) })
-		);
-		if (result.status === "not_found") throw new ApiError(404, "not_found", "This message does not exist, or has expired.");
-		if (result.status === "unauthorized") throw new ApiError(403, "unauthorized", "Invalid password or link.");
-		res.status(201).json(result.link);
-	});
-
-	// A POST, so link previews and scanners that only fetch pages can't use up a short link
-	api.post("/links/:code", limiter(config.openLimit), failureLimiter, (req, res) => {
-		const code = String(req.params.code).toLowerCase();
-		const target = CODE_PATTERN.test(code) ? store.resolveLink(code) : undefined;
-		if (!target) {
-			throw new ApiError(404, "not_found", "This short link does not exist. It expired, was already used, or never existed.");
-		}
-		res.json(target);
+		const request = parseLinkRequest(req.body);
+		const access = store.checkLinkAccess(id, { authHash: sha256Hex(authToken) });
+		if (access.status === "not_found") throw new ApiError(404, "not_found", "This message does not exist, or has expired.");
+		if (access.status === "unauthorized") throw new ApiError(403, "unauthorized", "Invalid password or link.");
+		res.status(201).json(await makeLink(req, id, request, access.expiresAt));
 	});
 
 	api.get("/messages/:id", (req, res) => {
@@ -324,6 +308,8 @@ export function createApp({ store, config }) {
 		res.json({
 			accounts: { enabled: auth.enabled, provider: auth.providerName },
 			user: req.user ?? null,
+			admin: isAdmin(req.user),
+			shortLinks: { enabled: shortener.enabled() },
 		});
 	});
 
@@ -392,34 +378,79 @@ export function createApp({ store, config }) {
 
 	/* Short links. The owner's session stands in for the access token. */
 
-	account.post("/messages/:id/links", (req, res) => {
+	account.post("/messages/:id/links", async (req, res) => {
 		const id = requireId(req.params.id);
-		const result = withCode(parseLinkRequest(req.body, config), (link) =>
-			store.addLink(id, link, { ownerId: req.user.id })
-		);
-		if (result.status === "not_found") {
+		const request = parseLinkRequest(req.body);
+		const access = store.checkLinkAccess(id, { ownerId: req.user.id });
+		if (access.status !== "ok") {
 			throw new ApiError(409, "burned", "This message does not exist or has already been destroyed.");
 		}
-		res.status(201).json(result.link);
+		res.status(201).json(await makeLink(req, id, request, access.expiresAt));
 	});
 
-	account.delete("/messages/:id/links", (req, res) => {
-		if (store.revokeOwnedLinks(req.user.id, requireId(req.params.id)) === undefined) throw ownedNotFound();
+	account.delete("/messages/:id/links", async (req, res) => {
+		const detached = store.detachOwnedLinks(req.user.id, requireId(req.params.id));
+		if (detached === undefined) throw ownedNotFound();
+		await deleteLinks(detached);
 		res.status(204).end();
 	});
 
-	account.delete("/messages/:id/links/:code", (req, res) => {
-		const code = String(req.params.code).toLowerCase();
-		const removed = store.revokeOwnedLinks(req.user.id, requireId(req.params.id), code);
-		if (removed === undefined) throw ownedNotFound();
-		if (removed === 0) throw new ApiError(404, "not_found", "This short link has already expired or been used.");
+	account.delete("/messages/:id/links/:linkId", async (req, res) => {
+		const linkId = String(req.params.linkId);
+		const detached = LINK_ID_PATTERN.test(linkId)
+			? store.detachOwnedLinks(req.user.id, requireId(req.params.id), linkId)
+			: [];
+		if (detached === undefined) throw ownedNotFound();
+		if (detached.length === 0) throw new ApiError(404, "not_found", "This short link has already expired or been removed.");
+		await deleteLinks(detached);
 		res.status(204).end();
 	});
 
 	account.delete("/messages/:id", (req, res) => {
 		if (!store.deleteOwned(req.user.id, requireId(req.params.id))) throw ownedNotFound();
+		// Its short links were detached by the delete; the sweep removes them at the shortener
 		res.status(204).end();
 	});
+
+	/* Admin: server settings. Admins are the accounts listed in ADMIN_EMAILS. */
+
+	const admin = express.Router();
+	admin.use((req, res, next) => {
+		if (!isAdmin(req.user)) throw new ApiError(403, "forbidden", "Only admins can change server settings.");
+		next();
+	});
+
+	// The redirect URI to register with the shortener's OAuth app
+	const shortenerCallback = (req) => `${auth.publicOrigin(req)}/auth/shortener/callback`;
+	const shortenerStatus = (req, status) => ({ ...status, redirectUri: shortenerCallback(req) });
+
+	admin.get("/shortener", (req, res) => {
+		res.json(shortenerStatus(req, shortener.status()));
+	});
+
+	admin.put("/shortener", (req, res) => {
+		res.json(shortenerStatus(req, shortener.updateOptions(req.body)));
+	});
+
+	// OAuth: returns the shortener's authorize URL; the browser goes there, and comes back to the callback
+	admin.post("/shortener/oauth/start", async (req, res) => {
+		res.json(await shortener.startOAuth(req.body ?? {}, { redirectUri: shortenerCallback(req), userId: req.user.id }));
+	});
+
+	// Fallback: connect (or reconnect) with an API key, verified with the service before it's saved
+	admin.post("/shortener/connect", async (req, res) => {
+		res.json(shortenerStatus(req, await shortener.connect(req.body)));
+	});
+
+	admin.post("/shortener/disconnect", async (req, res) => {
+		res.json(shortenerStatus(req, await shortener.disconnect()));
+	});
+
+	admin.post("/shortener/test", async (req, res) => {
+		res.json(shortenerStatus(req, await shortener.test()));
+	});
+
+	account.use("/admin", admin);
 
 	api.use("/account", account);
 
@@ -428,6 +459,21 @@ export function createApp({ store, config }) {
 	});
 
 	app.use("/api", api);
+
+	// Where the shortener's OAuth authorize page sends the admin back to
+	app.get("/auth/shortener/callback", auth.loadUser, async (req, res) => {
+		res.set("Cache-Control", "no-store");
+		if (!isAdmin(req.user)) return res.redirect("/account?shortener=forbidden");
+		try {
+			await shortener.finishOAuth(req.query, { userId: req.user.id });
+			res.redirect("/account?shortener=connected");
+		} catch (error) {
+			if (!(error instanceof ApiError)) console.error(error);
+			// Only a fixed error type goes into the URL, never text from the request
+			res.redirect(`/account?shortener=${error instanceof ApiError ? error.type : "internal_error"}`);
+		}
+	});
+
 	app.use("/auth", auth.loadUser, auth.router);
 
 	// Client app (production build). In development, `ng serve` proxies /api here instead.

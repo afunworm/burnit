@@ -1,15 +1,15 @@
 import { Component, OnInit, inject, input, signal } from "@angular/core";
 import { DOCUMENT, UpperCasePipe } from "@angular/common";
 import { Router } from "@angular/router";
-import { AccountService, BurnReason, OwnedMessage } from "../../services/account.service";
-import { ShortLink, apiError, shareUrl, shortUrl } from "../../services/message.service";
+import { AccountService, BurnReason, OwnedMessage, ShortenerStatus } from "../../services/account.service";
+import { ShortLink, apiError, shareUrl } from "../../services/message.service";
 import { decrypt, deriveKeys, isCryptoAvailable } from "../../lib/crypto";
-import { formatDuration } from "../../lib/message-config";
+import { ALIAS_PATTERN, ALIAS_RULES, formatDuration } from "../../lib/message-config";
 import { OwnerRecord } from "../../lib/vault";
 import { LinkCard } from "../../components/link-card";
 
-type Dialog = "none" | "detail" | "settings";
-type Confirming = "none" | "revoke" | "delete" | "revoke-links" | "reset-vault" | "delete-account";
+type Dialog = "none" | "detail" | "settings" | "admin";
+type Confirming = "none" | "revoke" | "delete" | "revoke-links" | "reset-vault" | "delete-account" | "disconnect";
 
 interface Row extends OwnedMessage {
 	/** The decrypted owner record; null while locked, or when no key copy exists */
@@ -17,7 +17,6 @@ interface Row extends OwnedMessage {
 }
 
 const MIN_PASSPHRASE_LENGTH = 8;
-const ALIAS_PATTERN = /^[A-Za-z0-9]{3,20}$/;
 
 const STATUS: Record<BurnReason, { short: string; long: string }> = {
 	read: { short: "read", long: "destroyed after its last view" },
@@ -25,6 +24,15 @@ const STATUS: Record<BurnReason, { short: string; long: string }> = {
 	// Only on messages from before wrong attempts stopped destroying anything
 	attempts: { short: "wrong-pw", long: "destroyed after too many wrong passwords" },
 	revoked: { short: "revoked", long: "destroyed by you" },
+};
+
+/** Error types the OAuth callback can come back with; never text from the URL itself */
+const OAUTH_ERRORS: Record<string, string> = {
+	access_denied: "The connection was cancelled at the link shortener.",
+	invalid_state: "That connection attempt expired or was started elsewhere. Please connect again.",
+	forbidden: "Only admins can connect the link shortener.",
+	shortener_error: "The link shortener refused the connection. Check the client ID, secret and redirect URI, then try again.",
+	default: "Connecting to the link shortener failed. Please try again.",
 };
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -45,6 +53,8 @@ export class AccountPage implements OnInit {
 
 	/** `?login=failed|unavailable`, set by the server when sign-in didn't work out */
 	readonly login = input<string>();
+	/** `?shortener=connected|<error type>`, set by the server after connecting the shortener through OAuth */
+	readonly shortenerResult = input<string>(undefined, { alias: "shortener" });
 
 	protected readonly ready = signal(false);
 	protected readonly loading = signal(false);
@@ -75,6 +85,19 @@ export class AccountPage implements OnInit {
 	protected readonly settingsMessage = signal("");
 	protected readonly settingsError = signal("");
 
+	// Admin: link shortener
+	protected readonly shortener = signal<ShortenerStatus | null>(null);
+	protected readonly apiKey = signal("");
+	protected readonly endpoint = signal("");
+	protected readonly clientId = signal("");
+	protected readonly clientSecret = signal("");
+	/** Showing the API key form instead of OAuth */
+	protected readonly useApiKey = signal(false);
+	/** Showing the key prompt while already connected */
+	protected readonly reconnecting = signal(false);
+	protected readonly adminMessage = signal("");
+	protected readonly adminError = signal("");
+
 	protected readonly minPassphraseLength = MIN_PASSPHRASE_LENGTH;
 	protected readonly dateTime = dateTime;
 
@@ -82,6 +105,15 @@ export class AccountPage implements OnInit {
 		await this.account.ready;
 		this.ready.set(true);
 		if (this.account.user()) await this.refresh();
+
+		// Back from the shortener's authorize page
+		const result = this.shortenerResult();
+		if (result && this.account.admin()) {
+			this.router.navigate([], { queryParams: { shortener: null }, queryParamsHandling: "merge", replaceUrl: true });
+			await this.openAdmin();
+			if (result === "connected") this.adminMessage.set("Connected to the link shortener. Short links are on.");
+			else this.adminError.set(OAUTH_ERRORS[result] ?? OAUTH_ERRORS["default"]);
+		}
 	}
 
 	protected onKeydown(event: KeyboardEvent): void {
@@ -226,12 +258,9 @@ export class AccountPage implements OnInit {
 
 	/* ---------- Short links ---------- */
 
-	protected shortUrl(link: ShortLink): string {
-		return shortUrl(this.document.location.origin, link.code);
-	}
-
 	protected linkNote(link: ShortLink): string {
-		return `works once · expires in ${formatDuration(Date.parse(link.expiresAt) - Date.now())} (${dateTime(link.expiresAt)})`;
+		const expires = `expires in ${formatDuration(Date.parse(link.expiresAt) - Date.now())} (${dateTime(link.expiresAt)})`;
+		return link.singleUse ? `works once · ${expires}` : expires;
 	}
 
 	/** Adds a short link, named from the input or random */
@@ -239,7 +268,7 @@ export class AccountPage implements OnInit {
 		event?.preventDefault();
 		const name = this.linkName().trim();
 		if (!row.record) return;
-		if (name && !ALIAS_PATTERN.test(name)) return this.detailError.set("Alias must be 3 - 20 letters or numbers.");
+		if (name && !ALIAS_PATTERN.test(name)) return this.detailError.set(ALIAS_RULES.replace(/^a/, "A"));
 
 		const secret = row.record.secret;
 		await this.runDetail(async () => {
@@ -252,12 +281,12 @@ export class AccountPage implements OnInit {
 	protected async revokeLink(row: Row, link: ShortLink): Promise<void> {
 		await this.runDetail(async () => {
 			try {
-				await this.account.revokeLinks(row.id, link.code);
+				await this.account.revokeLinks(row.id, link.id);
 			} catch (error) {
 				// Already used or expired: either way it's gone
 				if (apiError(error).status !== 404) throw error;
 			}
-			this.setLinks(row.id, (links) => links.filter((l) => l.code !== link.code));
+			this.setLinks(row.id, (links) => links.filter((l) => l.id !== link.id));
 		});
 	}
 
@@ -388,6 +417,99 @@ export class AccountPage implements OnInit {
 			this.newPassphraseConfirm.set("");
 		} catch (error) {
 			this.settingsError.set(failure ?? (error instanceof Error ? error.message : apiError(error).error));
+		} finally {
+			this.busy.set(false);
+			this.confirming.set("none");
+		}
+	}
+
+	/* ---------- Admin: link shortener ---------- */
+
+	protected async openAdmin(): Promise<void> {
+		this.apiKey.set("");
+		this.clientSecret.set("");
+		this.reconnecting.set(false);
+		this.adminMessage.set("");
+		this.adminError.set("");
+		this.confirming.set("none");
+		this.dialog.set("admin");
+		await this.runAdmin(() => this.account.shortenerStatus(), "");
+	}
+
+	/** Sends the browser to the shortener's authorize page; it comes back to the server's callback. */
+	protected async connectOAuth(event: Event): Promise<void> {
+		event.preventDefault();
+		const clientId = this.clientId().trim();
+		if (!clientId) return this.adminError.set("Enter the client ID of the app registered at the link shortener.");
+		if (this.busy()) return;
+		this.busy.set(true);
+		this.adminError.set("");
+		try {
+			const { authorizeUrl } = await this.account.startShortenerOAuth(
+				clientId,
+				this.clientSecret().trim() || undefined,
+				this.endpoint().trim() || undefined
+			);
+			this.document.location.assign(authorizeUrl);
+		} catch (error) {
+			this.adminError.set(apiError(error).error);
+			this.busy.set(false);
+		}
+	}
+
+	protected async connectShortener(event: Event): Promise<void> {
+		event.preventDefault();
+		const key = this.apiKey().trim();
+		if (!key) return this.adminError.set("Paste the API key first.");
+		const endpoint = this.endpoint().trim() || undefined;
+		const ok = await this.runAdmin(() => this.account.connectShortener(key, endpoint), "Connected. Short links are on.");
+		if (ok) {
+			this.apiKey.set("");
+			this.reconnecting.set(false);
+		}
+	}
+
+	protected async disconnectShortener(): Promise<void> {
+		if (this.confirming() !== "disconnect") return this.confirming.set("disconnect");
+		await this.runAdmin(() => this.account.disconnectShortener(), "Disconnected. Short links are off.");
+	}
+
+	protected async testShortener(): Promise<void> {
+		await this.runAdmin(() => this.account.testShortener(), "The connection works.");
+	}
+
+	protected async saveShortenerOptions(event: Event, lifetime: string, domain: string, singleUse: boolean, providerExpiry: boolean): Promise<void> {
+		event.preventDefault();
+		const lifetimeMinutes = Number(lifetime);
+		const domainId = domain.trim() === "" ? null : Number(domain);
+		if (!Number.isSafeInteger(lifetimeMinutes) || lifetimeMinutes < 0) {
+			return this.adminError.set("Lifetime must be a whole number of minutes (0 = as long as the message).");
+		}
+		if (domainId !== null && (!Number.isSafeInteger(domainId) || domainId < 0)) {
+			return this.adminError.set("Domain id must be a whole number, or empty for the default.");
+		}
+		await this.runAdmin(
+			() => this.account.updateShortener({ lifetimeMinutes, domainId, singleUse, providerExpiry }),
+			"Link options saved."
+		);
+	}
+
+	private async runAdmin(action: () => Promise<ShortenerStatus>, success: string): Promise<boolean> {
+		if (this.busy()) return false;
+		this.busy.set(true);
+		this.adminMessage.set("");
+		this.adminError.set("");
+		try {
+			const status = await action();
+			this.shortener.set(status);
+			this.endpoint.set(status.endpoint);
+			this.clientId.set(status.oauthClient.clientId);
+			this.useApiKey.set(status.connection.method === "api_key" && !status.oauthClient.clientId);
+			this.adminMessage.set(success);
+			return true;
+		} catch (error) {
+			this.adminError.set(apiError(error).error);
+			return false;
 		} finally {
 			this.busy.set(false);
 			this.confirming.set("none");

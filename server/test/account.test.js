@@ -4,6 +4,8 @@ import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { createServer } from "node:http";
 import { createApp } from "../src/app.js";
 import { Store } from "../src/store.js";
+import { createShortener } from "../src/shortener.js";
+import { fakeShortener } from "./fake-shortener.js";
 
 const CLIENT_ID = "burnit-test";
 
@@ -89,12 +91,17 @@ let provider;
 let store;
 let server;
 let origin;
+let fake;
+let shortener;
 
 before(async () => {
 	provider = await startProvider();
 	store = new Store(":memory:");
+	fake = fakeShortener();
+	shortener = createShortener({ store, fetch: fake.fetch });
 	server = createApp({
 		store,
+		shortener,
 		config: {
 			staticDir: "/nonexistent",
 			trustProxy: false,
@@ -102,13 +109,13 @@ before(async () => {
 			maxViews: 10000,
 			maxMessageBytes: 1024,
 			maxFailedAttempts: 1000,
-			shortLinkMinutes: 15,
 			createLimit: 1000,
 			openLimit: 1000,
 			accountLimit: 1000,
 			oidc: { issuer: provider.issuer, clientId: CLIENT_ID, clientSecret: "secret", providerName: "PocketID" },
 			publicUrl: "",
 			sessionDays: 30,
+			adminEmails: ["Root@example.com"],
 		},
 	}).listen(0);
 	await new Promise((resolve) => server.once("listening", resolve));
@@ -169,7 +176,12 @@ const createMessage = (cookie, overrides = {}) => {
 describe("signing in", () => {
 	test("the session endpoint advertises the provider", async () => {
 		const { body } = await request("GET", "/api/session");
-		assert.deepEqual(body, { accounts: { enabled: true, provider: "PocketID" }, user: null });
+		assert.deepEqual(body, {
+			accounts: { enabled: true, provider: "PocketID" },
+			user: null,
+			admin: false,
+			shortLinks: { enabled: false },
+		});
 	});
 
 	test("logs in through the provider and creates an account once", async () => {
@@ -312,9 +324,109 @@ describe("owned messages", () => {
 	});
 });
 
+describe("shortener admin", () => {
+	const settingsUrl = "/api/account/admin/shortener";
+
+	test("only admins can see or change the shortener settings", async () => {
+		const cookie = await login("nina");
+		assert.equal((await request("GET", "/api/session", { cookie })).body.admin, false);
+		assert.equal((await request("GET", settingsUrl, { cookie })).status, 403);
+		assert.equal((await request("POST", `${settingsUrl}/connect`, { cookie, body: { apiKey: "sdm_x" } })).status, 403);
+	});
+
+	test("admins connect with a verified key, which is stored encrypted and never sent back", async () => {
+		const cookie = await login("root");
+		assert.equal((await request("GET", "/api/session", { cookie })).body.admin, true);
+
+		const wrong = await request("POST", `${settingsUrl}/connect`, { cookie, body: { apiKey: "sdm_wrong" } });
+		assert.equal(wrong.status, 400);
+		assert.equal(wrong.body.type, "invalid_credentials");
+		assert.equal(shortener.enabled(), false);
+
+		const connected = await request("POST", `${settingsUrl}/connect`, { cookie, body: { apiKey: fake.settings.apiKey } });
+		assert.equal(connected.status, 200);
+		assert.equal(connected.body.connection.connected, true);
+		assert.equal(connected.body.connection.hint, "sdm_…test");
+		assert.ok(!JSON.stringify(connected.body).includes(fake.settings.apiKey));
+		assert.ok(!JSON.stringify(store.getSetting("shortener")).includes(fake.settings.apiKey));
+		assert.equal((await request("GET", "/api/session", { cookie })).body.shortLinks.enabled, true);
+
+		const updated = await request("PUT", settingsUrl, { cookie, body: { lifetimeMinutes: 30, singleUse: false } });
+		assert.equal(updated.body.lifetimeMinutes, 30);
+		assert.equal(updated.body.singleUse, false);
+		assert.equal(updated.body.connection.connected, true);
+		assert.equal((await request("PUT", settingsUrl, { cookie, body: { endpoint: "ftp://nope" } })).status, 400);
+		assert.equal((await request("POST", `${settingsUrl}/test`, { cookie })).status, 200);
+
+		const disconnected = await request("POST", `${settingsUrl}/disconnect`, { cookie });
+		assert.equal(disconnected.body.connection.connected, false);
+		assert.equal(shortener.enabled(), false);
+
+		await request("PUT", settingsUrl, { cookie, body: { lifetimeMinutes: 15, singleUse: true } });
+		await request("POST", `${settingsUrl}/connect`, { cookie, body: { apiKey: fake.settings.apiKey } });
+	});
+	test("admins connect through OAuth with PKCE; tokens refresh, and are revoked on disconnect", async () => {
+		const cookie = await login("root");
+		const follow = (url, cookie) => fetch(origin + url.pathname + url.search, { redirect: "manual", headers: { Cookie: cookie } });
+
+		const started = await request("POST", `${settingsUrl}/oauth/start`, {
+			cookie,
+			body: { clientId: fake.client.clientId, clientSecret: fake.client.clientSecret },
+		});
+		assert.equal(started.status, 200);
+		const authorizeUrl = new URL(started.body.authorizeUrl);
+		assert.equal(authorizeUrl.origin + authorizeUrl.pathname, "https://byh.uy/oauth/authorize");
+		assert.equal(authorizeUrl.searchParams.get("code_challenge_method"), "S256");
+		assert.equal(authorizeUrl.searchParams.get("client_id"), fake.client.clientId);
+		assert.equal(authorizeUrl.searchParams.get("redirect_uri"), `${origin}/auth/shortener/callback`);
+
+		const callback = fake.authorize(started.body.authorizeUrl);
+		const intruder = await login("nina");
+		assert.equal((await follow(callback, intruder)).headers.get("location"), "/account?shortener=forbidden");
+
+		const done = await follow(callback, cookie);
+		assert.equal(done.status, 302);
+		assert.equal(done.headers.get("location"), "/account?shortener=connected");
+		assert.equal((await follow(callback, cookie)).headers.get("location"), "/account?shortener=invalid_state");
+
+		const { body: status } = await request("GET", settingsUrl, { cookie });
+		assert.equal(status.connection.method, "oauth");
+		assert.equal(status.connection.connected, true);
+		assert.equal(status.connection.workspace, "Team");
+		assert.equal(status.connection.refreshable, true);
+		assert.equal(status.oauthClient.secretSet, true);
+		assert.equal(status.redirectUri, `${origin}/auth/shortener/callback`);
+		const saved = JSON.stringify(store.getSetting("shortener"));
+		assert.ok(!JSON.stringify(status).includes("sdmo_") && !saved.includes("sdmo_") && !saved.includes("sdmr_"));
+		assert.ok(!saved.includes(fake.client.clientSecret));
+
+		const { body: created } = await createMessage(cookie);
+		const link = await request("POST", `/api/account/messages/${created.id}/links`, {
+			cookie,
+			body: { secret: randomBytes(32).toString("base64url") },
+		});
+		assert.equal(link.status, 201);
+		assert.match(fake.requests.at(-1).authorization, /^Bearer sdmo_/);
+
+		// The access token stops working early: one refresh, and the refresh token rotates
+		fake.accessTokens.clear();
+		const oldRefresh = [...fake.refreshTokens];
+		assert.equal((await request("POST", `${settingsUrl}/test`, { cookie })).status, 200);
+		assert.equal(fake.refreshTokens.size, 1);
+		assert.notDeepEqual([...fake.refreshTokens], oldRefresh);
+
+		const disconnected = await request("POST", `${settingsUrl}/disconnect`, { cookie });
+		assert.equal(disconnected.body.connection.connected, false);
+		assert.equal(fake.refreshTokens.size, 0);
+		assert.equal(fake.accessTokens.size, 0);
+
+		// The rest of the tests use an API key
+		await request("POST", `${settingsUrl}/connect`, { cookie, body: { apiKey: fake.settings.apiKey } });
+	});
+});
+
 describe("short links of owned messages", () => {
 	const secret = () => randomBytes(32).toString("base64url");
-	const resolve = (code) => request("POST", `/api/links/${code}`);
 
 	test("owners add, list and invalidate short links without the access token", async () => {
 		const cookie = await login("kim");
@@ -322,23 +434,21 @@ describe("short links of owned messages", () => {
 		const linkUrl = `/api/account/messages/${created.id}/links`;
 		const s = secret();
 
-		const named = await request("POST", linkUrl, { cookie, body: { secret: s, code: "KimsLink" } });
+		const named = await request("POST", linkUrl, { cookie, body: { secret: s, alias: "KimsLink" } });
 		assert.equal(named.status, 201);
-		assert.equal(named.body.code, "kimslink");
+		assert.equal(named.body.url, "https://byh.uy/KimsLink");
 		const random = await request("POST", linkUrl, { cookie, body: { secret: s } });
-		assert.match(random.body.code, /^[a-z0-9]{6}$/);
+		assert.equal(random.status, 201);
 
 		const { body: listed } = await request("GET", "/api/account/messages", { cookie });
-		assert.deepEqual(
-			listed[0].links.map((link) => link.code).sort(),
-			[named.body.code, random.body.code].sort()
-		);
-		assert.equal(listed[0].links[0].secret, undefined);
+		const mine = listed.find((message) => message.id === created.id);
+		assert.deepEqual(mine.links.map((link) => link.id).sort(), [named.body.id, random.body.id].sort());
 
-		assert.equal((await request("DELETE", `${linkUrl}/kimslink`, { cookie })).status, 204);
-		assert.equal((await resolve("kimslink")).status, 404);
+		assert.equal((await request("DELETE", `${linkUrl}/${named.body.id}`, { cookie })).status, 204);
+		assert.equal(fake.links.has(named.body.id), false);
+		assert.equal((await request("DELETE", `${linkUrl}/${named.body.id}`, { cookie })).status, 404);
 		assert.equal((await request("DELETE", linkUrl, { cookie })).status, 204);
-		assert.equal((await resolve(random.body.code)).status, 404);
+		assert.equal(fake.links.has(random.body.id), false);
 		assert.deepEqual((await request("GET", `/api/account/messages/${created.id}`, { cookie })).body.links, []);
 	});
 
@@ -351,7 +461,7 @@ describe("short links of owned messages", () => {
 		const intruder = await login("mallory");
 		assert.equal((await request("POST", linkUrl, { cookie: intruder, body: { secret: secret() } })).status, 409);
 		assert.equal((await request("DELETE", linkUrl, { cookie: intruder })).status, 404);
-		assert.equal((await resolve(added.body.code)).status, 200);
+		assert.equal(fake.links.has(added.body.id), true);
 	});
 
 	test("short links die with their message", async () => {
@@ -359,7 +469,8 @@ describe("short links of owned messages", () => {
 		const { body: created } = await createMessage(cookie);
 		const added = await request("POST", `/api/account/messages/${created.id}/links`, { cookie, body: { secret: secret() } });
 		await request("POST", `/api/account/messages/${created.id}/revoke`, { cookie });
-		assert.equal((await resolve(added.body.code)).status, 404);
+		await shortener.sweep();
+		assert.equal(fake.links.has(added.body.id), false);
 	});
 });
 

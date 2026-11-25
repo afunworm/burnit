@@ -23,9 +23,9 @@ Not into typing configuration? Click any setting in the status bar (`views:1`, `
 The full link is long, because it carries the key. To open a message on another device:
 
 -   **QR code**: click `QR CODE` next to any link and scan it with a phone. This keeps the full link, so nothing changes about the encryption.
--   **Short link**: add `alias test` to the configuration (or click `MAKE SHORT LINK` after saving) to get `https://<your-domain>/test`, which is easy to type. Short links are case-insensitive and **work once, for 15 minutes**. While a short link exists, the server holds the message's key, so the server operator could read the message during that window. A password still protects it, since the password never goes into a short link. If someone else uses your short link first, you get "not found" instead of the message, so interception doesn't go unnoticed.
+-   **Short link**: add `alias test` to the configuration (or click `MAKE SHORT LINK` after saving) to get `https://byh.uy/test`, which is easy to type. Short links are made by the [Size Does Matter](https://byh.uy) link shortener, once an admin has connected it (see [Short links](#short-links-admin) below). By default they **work once, for 15 minutes**. While a short link exists, the shortener holds the full link, and with it the message's key, so the shortener could read the message during that window. A password still protects it, since the password never goes into a link. Burnit deletes a short link at the shortener as soon as it expires or its message burns.
 
-Signed-in users can make new short links (named or random), invalidate them, and show their QR codes from the message's page in their account.
+Signed-in users can make new short links (named or random), delete them, and show their QR codes from the message's page in their account.
 
 ### Advanced Usage
 
@@ -59,13 +59,13 @@ This message requires the password "secret sauce" to open, and will be destroyed
 2. Each configuration has to be on its own line.
 3. Configuration is only recognized when the first line starts with a configuration keyword. Otherwise (including when a message starts with `---`), the whole text is saved as the message with the default configuration.
 4. Inside the configuration block, every line must be valid. Unknown or malformed lines are reported, and the message is not saved.
-5. If the requested `alias` is in use by another live short link, the message is not created.
+5. If the requested `alias` is taken at the shortener, the message is still created, just without the short link.
 6. Messages always expire within 1 year (configurable by the host, see `MAX_TTL_DAYS`).
 
 | Configuration | Alias                                                                    | Explanation                                                                                        | Example           |
 | :------------ | :----------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :---------------- |
 | `nocopy`      | `obfuscate`, `obfuscated`                                                | Attempt to make the message uncopiable from the browser.                                           | `nocopy`          |
-| `alias`       | `name`                                                                   | Also make a short link with this name (3 - 20 letters or numbers). See Short Links above.          | `alias topSecret` |
+| `alias`       | `name`                                                                   | Also make a short link with this name (3 - 64 letters, numbers, `-` or `_`). See Short Links above. | `alias topSecret` |
 | `password`    | `pwd`, `pw`                                                              | Encrypt the message with the provided password.                                                    | `pw test`         |
 | `expires`     | `expire`, `expiration`, `exp`,`remove`, `removes`, `destroy`, `destroys` | Followed by a condition. Message will be destroyed and removed after the condition is met.         | `expires 5 days`  |
 
@@ -151,10 +151,25 @@ git pull && docker compose up -d --build
 | `MAX_VIEWS`           | `10000`             | Maximum view limit a message can have (0 = unlimited is always allowed).                          |
 | `MAX_MESSAGE_KB`      | `512`               | Maximum size of an encrypted message.                                                             |
 | `MAX_FAILED_ATTEMPTS` | `10`                | Failed opens (wrong password or link, unknown short link) one IP can make per 15 minutes.          |
-| `SHORT_LINK_MINUTES`  | `15`                | How long a short link works, unless it is used first.                                             |
+| `ADMIN_EMAILS`        |                     | Comma-separated sign-in emails of the accounts that may change server settings (Admin).          |
+| `SECRET_KEY`          | generated           | 32 bytes (64 hex characters or base64) that encrypt stored credentials. Generated into `DATA_DIR/secret.key` when unset. |
 | `RATE_LIMIT_CREATE`   | `30`                | Messages one IP can create per 15 minutes.                                                        |
 | `RATE_LIMIT_OPEN`     | `60`                | Open attempts one IP can make per 15 minutes.                                                     |
 | `RATE_LIMIT_ACCOUNT`  | `600`               | Account API requests one IP can make per 15 minutes.                                              |
+
+### Short links (admin)<a id="short-links-admin"></a>
+
+Short links come from [Size Does Matter](https://byh.uy/docs) (byh.uy). An admin connects it once; after that, the server makes every call itself, in the background, with no user involved. The browser never sees the credentials.
+
+1. Sign-in must be set up (see Accounts below), and your sign-in email listed in `ADMIN_EMAILS`.
+2. In byh.uy, open **Admin ▸ Apps** and register burnit as a **server app** with the `links:read` and `links:write` permissions. Use the redirect URI shown in burnit's Admin panel: `<PUBLIC_URL>/auth/shortener/callback`.
+3. In burnit, open your account, press **Admin**, enter the client ID and secret, and press **CONNECT TO BYH.UY**. You approve the connection at byh.uy and come back to burnit.
+
+Burnit uses the OAuth authorization code flow with PKCE (S256). The access token, the refresh token (for apps with expiring tokens) and the client secret are stored encrypted with AES-256-GCM (see `SECRET_KEY`). Expiring tokens are refreshed automatically, one refresh at a time, because byh.uy rotates refresh tokens.
+
+If the service doesn't support OAuth, press **USE AN API KEY INSTEAD** and paste a key from byh.uy's **API & webhooks ▸ New key**. The key is checked with the service before it is saved, stored encrypted, and never shown again.
+
+The Admin panel shows the connection status with **TEST**, **RECONNECT** and **DISCONNECT** (which also revokes OAuth tokens at byh.uy), and the link options: lifetime (default 15 minutes; 0 = as long as the message), the byh.uy domain, single use (byh.uy's click limit) and whether byh.uy expires links itself. Some of these need features of your byh.uy plan; without them, link creation fails with a message saying which. Burnit deletes expired short links at byh.uy either way.
 
 ### Accounts (optional)
 
@@ -179,7 +194,7 @@ Accounts are created on first sign-in. Signed-in users find their messages under
 -   Two independent keys are derived with HKDF: an AES-256-GCM key that encrypts the message in the browser, and an access token. The server only stores the ciphertext and the SHA-256 hash of the access token.
 -   To open a message, the browser sends the access token. A wrong password or link is rejected without consuming a view. Too many failures block that IP for a while; they never destroy the message, so knowing its id isn't enough to destroy it.
 -   Views are counted atomically in SQLite, and the last allowed view deletes the message in the same transaction. Deleted data is overwritten (`secure_delete`), and expired messages are purged every minute.
--   Short links are the exception, and are opt-in: a short link stores the link secret (never the password) on the server until it is used, its 15 minutes run out, or the message burns. Resolving one is a `POST`, so link previews and scanners can't use it up.
+-   Short links are the exception, and are opt-in: a short link at the external shortener points at the full link, so the shortener holds the link secret (never the password) until the link is used up, expires, or its message burns, when burnit deletes it there. The shortener's credentials (OAuth tokens or API key) stay on the server, encrypted with AES-256-GCM.
 -   Accounts don't weaken this. Sign-in uses the OIDC authorization code flow with PKCE, and the session cookie is `HttpOnly` and `SameSite=Lax`. To let owners read their messages again, each one carries a copy of its link secret and password, encrypted in the browser with a vault key. The vault key is stored on the server only wrapped with the user's vault passphrase (PBKDF2-SHA256, 600,000 iterations), so the server can't read owned messages either. When an owned message burns, its ciphertext and key copy are wiped; only the bookkeeping (views, dates) stays in the owner's history.
 
 ## **Development**
